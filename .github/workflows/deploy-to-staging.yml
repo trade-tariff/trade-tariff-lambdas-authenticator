@@ -1,0 +1,39 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+  STAGE: staging
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          cache: yarn
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::451934005581:role/GithubActions-Serverless-Lambda-Role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - run: yarn add -g serverless@^3
+
+      - run: yarn install --frozen-lockfile --production # NOTE: To keep the lambda package size down, we only install production dependencies
+
+      - run: make deploy
+
+      - run: make publish

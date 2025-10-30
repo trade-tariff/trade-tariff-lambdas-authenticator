@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+[[ "$TRACE" ]] && set -o xtrace
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o noclobber
+
+declare -A DEPLOYMENT_BUCKETS=(
+  ["development"]="trade-tariff-lambda-deployment-844815912454-us-east-1"
+  ["staging"]="trade-tariff-lambda-deployment-451934005581-us-east-1"
+  ["production"]="trade-tariff-lambda-deployment-382373577178-us-east-1"
+)
+
+deploy() {
+  local stage="$1"
+  local bucket="${DEPLOYMENT_BUCKETS[$stage]}"
+
+  STAGE=$stage DEPLOYMENT_BUCKET="$bucket" serverless deploy
+}
+
+main() {
+  if [ $# -lt 1 ]; then
+    echo "Usage: $0 <stage>"
+    exit 1
+  fi
+  export AWS_REGION="us-east-1"
+
+  deploy "$1"
+}
+
+main "$@"

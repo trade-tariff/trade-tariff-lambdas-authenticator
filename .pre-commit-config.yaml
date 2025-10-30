@@ -1,0 +1,43 @@
+---
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: pretty-format-json
+        args:
+          - "--autofix"
+      - id: trailing-whitespace
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.45.0
+    hooks:
+      - id: markdownlint-docker
+        args:
+          - "--disable"
+          - "MD013"
+          - "--fix"
+
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v9.38.0
+    hooks:
+      - id: eslint
+        args: [--fix]
+
+  - repo: https://github.com/JoC0de/pre-commit-prettier
+    rev: v3.6.2
+    hooks:
+      - id: prettier
+        args: [--write]
+
+  - repo: local
+    hooks:
+      - id: trufflehog
+        name: TruffleHog
+        description: Detect secrets in your repo
+        entry: bash -c '.github/bin/trufflehog'
+        language: system
+        stages: ["pre-commit", "pre-push"]

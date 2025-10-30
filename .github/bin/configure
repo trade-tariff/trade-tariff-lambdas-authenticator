@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+[[ "$TRACE" ]] && set -o xtrace
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o noclobber
+
+declare -A USER_POOL_IDS=(
+  ["development"]="eu-west-2_eYCVlIQL0"
+  ["staging"]="eu-west-2_h8JF71jvX"
+  ["production"]="eu-west-2_dtYQGsKs4"
+)
+
+update_user_pool_id() {
+  local stage="$1"
+  local user_pool_id="${USER_POOL_IDS[$stage]}"
+
+  sed -i 's/const USER_POOL_ID = ".*";/const USER_POOL_ID = "'"$user_pool_id"'";/' src/index.js
+}
+
+main() {
+  if [ $# -lt 1 ]; then
+    echo "Usage: $0 <stage>"
+    exit 1
+  fi
+  export AWS_REGION="us-east-1"
+
+  update_user_pool_id "$1"
+}
+
+main "$@"

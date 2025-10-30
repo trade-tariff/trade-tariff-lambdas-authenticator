@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+[[ "$TRACE" ]] && set -o xtrace
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o noclobber
+
+STAGE="${1:-development}"
+
+source .env
+
+BEARER_TOKEN=$(.github/bin/get-access-token $STAGE)
+
+sed "s/{{BEARER_TOKEN}}/${BEARER_TOKEN}/g" < .github/bin/templates/authorised.json

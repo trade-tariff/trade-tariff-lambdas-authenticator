@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+[[ "$TRACE" ]] && set -o xtrace
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o noclobber
+
+declare -A TOKEN_ENDPOINTS=(
+  [development]=https://auth.id.dev.trade-tariff.service.gov.uk/oauth2/token
+  [staging]=https://auth.id.staging.trade-tariff.service.gov.uk/oauth2/token
+  [production]=https://auth.id.trade-tariff.service.gov.uk/oauth2/token
+)
+
+STAGE="${1:-development}"
+
+source .env
+
+URL=${TOKEN_ENDPOINTS[$STAGE]}
+
+curl --silent --request POST "$URL" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}" | jq -r '"Bearer " + .access_token'
