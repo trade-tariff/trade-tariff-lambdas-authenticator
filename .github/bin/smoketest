@@ -29,7 +29,7 @@ function invoke_lambda() {
     --payload "file://$event_file" \
     --cli-binary-format raw-in-base64-out \
     --region us-east-1 \
-    "$result_file"
+    "$result_file" > /dev/null
 }
 
 function assert_header() {

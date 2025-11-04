@@ -13,6 +13,9 @@ const SCOPES = {
   },
 };
 
+// NOTE: All of our viewer requests originate from CloudFront in the eu-west-2 region
+// so we create the DynamoDB client in that region.
+// This reduces latency and avoids potential issues with regional endpoints.
 const ddbClient = new DynamoDBClient({ region: "eu-west-2" });
 
 function authorised(scopes, path) {
@@ -128,8 +131,6 @@ module.exports.handler = async (event, _context, callback) => {
       },
     ];
 
-    debug(`Request authorized for clientId ${clientId}`);
-    debug("Request URI:", request);
     // Forward the modified request
     return callback(null, request);
   } catch (err) {
