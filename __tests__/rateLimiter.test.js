@@ -28,7 +28,7 @@ describe("applyRateLimit", () => {
       "client-rate-limits",
       "test-client",
     );
-    expect(result).toBe(true);
+    expect(result).toStrictEqual({ allowed: true, rateLimitRemaining: 2499 });
     expect(mockSend).toHaveBeenCalledTimes(2);
     expect(mockSend.mock.calls[0][0]).toBeInstanceOf(GetItemCommand);
     const updateParams = mockSend.mock.calls[1][0].input;
@@ -55,7 +55,7 @@ describe("applyRateLimit", () => {
       "client-rate-limits",
       "test-client",
     );
-    expect(result).toBe(false);
+    expect(result).toStrictEqual({ allowed: false, rateLimitRemaining: 0 });
     expect(mockSend).toHaveBeenCalledTimes(1); // No update attempted
   });
 
@@ -78,7 +78,7 @@ describe("applyRateLimit", () => {
       "client-rate-limits",
       "test-client",
     );
-    expect(result).toBe(true);
+    expect(result).toStrictEqual({ allowed: true, rateLimitRemaining: 249 });
     const updateParams = mockSend.mock.calls[1][0].input;
     expect(updateParams.ExpressionAttributeValues[":newTokens"].N).toBe("249"); // (0 + 250) -1
     expect(updateParams.ExpressionAttributeValues[":oldLastRefill"].N).toBe(
@@ -98,7 +98,7 @@ describe("applyRateLimit", () => {
       "client-rate-limits",
       "test-client",
     );
-    expect(result).toBe(false);
+    expect(result).toStrictEqual({ allowed: false, rateLimitRemaining: 0 });
     expect(mockSend).toHaveBeenCalledTimes(2);
   });
 });

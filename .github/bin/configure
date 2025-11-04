@@ -12,11 +12,24 @@ declare -A USER_POOL_IDS=(
   ["production"]="eu-west-2_dtYQGsKs4"
 )
 
+declare -A LOG_LEVELS=(
+  ["development"]="DEBUG"
+  ["staging"]="INFO"
+  ["production"]="WARN"
+)
+
 update_user_pool_id() {
   local stage="$1"
   local user_pool_id="${USER_POOL_IDS[$stage]}"
 
   sed -i 's/const USER_POOL_ID = ".*";/const USER_POOL_ID = "'"$user_pool_id"'";/' src/index.js
+}
+
+update_log_level() {
+  local stage="$1"
+  local log_level="${LOG_LEVELS[$stage]}"
+
+  sed -i 's/const LOG_LEVEL = ".*";/const LOG_LEVEL = "'"$log_level"'";/' src/logger.js
 }
 
 main() {
@@ -27,6 +40,7 @@ main() {
   export AWS_REGION="us-east-1"
 
   update_user_pool_id "$1"
+  update_log_level "$1"
 }
 
 main "$@"

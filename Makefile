@@ -1,7 +1,5 @@
 test:
-	node tests/invoke.js
-inspect:
-	node inspect tests/invoke.js
+	yarn test
 
 .SILENT:
 config-development:

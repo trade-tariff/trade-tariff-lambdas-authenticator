@@ -2,6 +2,7 @@ const {
   GetItemCommand,
   UpdateItemCommand,
 } = require("@aws-sdk/client-dynamodb");
+const { debug, info, warn, error } = require("./logger");
 
 // Atomic Token Bucket Rate Limiter
 // Refill Rate: 500 tokens per minute
@@ -30,16 +31,14 @@ async function applyRateLimit(ddbClient, table, clientId) {
   } catch (err) {
     if (err.name === "ResourceNotFoundException") {
       if (err.message.includes(table)) {
-        console.error(`DynamoDB table ${table} not found:`, err);
+        error(`DynamoDB table ${table} not found:`, err);
         throw err;
       } else {
-        console.debug(
-          `Client ${clientId} not found in table; treating as new client`,
-        );
+        debug(`Client ${clientId} not found in table; treating as new client`);
         item = {}; // New client
       }
     } else {
-      console.error("DynamoDB GetItem error:", err);
+      error("DynamoDB GetItem error:", err);
       throw err;
     }
   }
@@ -65,7 +64,7 @@ async function applyRateLimit(ddbClient, table, clientId) {
   const newTokens = cappedTokens - 1;
 
   if (newTokens < 0) {
-    console.debug(
+    debug(
       `Rate limit check failed: Insufficient tokens after refill (potential: ${potentialTokens})`,
     );
     return { allowed: false, rateLimitRemaining: 0 };
@@ -99,20 +98,18 @@ async function applyRateLimit(ddbClient, table, clientId) {
   try {
     const result = await ddbClient.send(new UpdateItemCommand(updateParams));
     if (!result.Attributes) {
-      console.debug(
-        "Rate limit update did not return attributes; denying to be safe",
-      );
+      debug("Rate limit update did not return attributes; denying to be safe");
       return { allowed: false, rateLimitRemaining: 0 };
     }
     return { allowed: true, rateLimitRemaining: rateLimitRemaining };
   } catch (err) {
     if (err.name === "ConditionalCheckFailedException") {
-      console.debug(
+      debug(
         "Conditional update failed (concurrent modification); denying to be safe",
       );
       return { allowed: false, rateLimitRemaining: 0 };
     }
-    console.error("DynamoDB UpdateItem error:", err);
+    error("DynamoDB UpdateItem error:", err);
     throw err;
   }
 }

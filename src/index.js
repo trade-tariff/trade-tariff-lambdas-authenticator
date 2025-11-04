@@ -1,6 +1,7 @@
 const { CognitoJwtVerifier } = require("aws-jwt-verify");
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const { applyRateLimit } = require("./rateLimiter");
+const { debug, info, warn, error } = require("./logger");
 const { jwtDecode } = require("jwt-decode");
 
 const DYNAMODB_TABLE = "client-rate-limits";
@@ -48,16 +49,14 @@ module.exports.handler = async (event, _context, callback) => {
 
   // If no Authorization header, forward as unauthenticated
   if (!authHeader || authHeader.length === 0) {
-    console.log(
-      "No Authorization header found - forwarding as unauthenticated",
-    );
+    info("No Authorization header found - forwarding as unauthenticated");
     request.headers["x-client-id"] = [{ key: "X-Client-Id", value: "unknown" }];
     return callback(null, request);
   }
 
   const authValue = authHeader[0].value;
   if (!authValue.startsWith("Bearer ")) {
-    console.log("Invalid Authorization header format");
+    info("Invalid Authorization header format");
     return callback(null, {
       status: "401",
       statusDescription: "Unauthorized",
@@ -68,7 +67,7 @@ module.exports.handler = async (event, _context, callback) => {
 
   try {
     const decoded = jwtDecode(token);
-    console.debug("Decoded token:", decoded);
+    debug("Decoded token:", decoded);
     const clientId = decoded.client_id;
 
     const verifier = CognitoJwtVerifier.create({
@@ -78,13 +77,13 @@ module.exports.handler = async (event, _context, callback) => {
     });
 
     const payload = await verifier.verify(token);
-    console.debug("Token verified successfully");
+    debug("Token verified successfully");
 
     const scopes = payload.scope;
     const path = request.uri;
 
     if (!authorised(scopes, path)) {
-      console.log(`Forbidden: Insufficient scopes for path ${path}`);
+      info(`Forbidden: Insufficient scopes for path ${path}`);
       return callback(null, {
         status: "403",
         statusDescription: "Forbidden",
@@ -99,7 +98,7 @@ module.exports.handler = async (event, _context, callback) => {
     );
 
     if (!allowed) {
-      console.debug(`Rate limit exceeded for clientId ${clientId}`);
+      debug(`Rate limit exceeded for clientId ${clientId}`);
       return callback(null, {
         status: "429",
         statusDescription: "Too Many Requests",
@@ -129,12 +128,12 @@ module.exports.handler = async (event, _context, callback) => {
       },
     ];
 
-    console.debug(`Request authorized for clientId ${clientId}`);
-    console.debug("Request URI:", request);
+    debug(`Request authorized for clientId ${clientId}`);
+    debug("Request URI:", request);
     // Forward the modified request
     return callback(null, request);
   } catch (err) {
-    console.error("Token verification failed:", err);
+    error("Token verification failed:", err);
     // If Authorization present but invalid, reject with 401
     return callback(null, {
       status: "401",
