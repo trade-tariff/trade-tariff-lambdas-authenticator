@@ -145,4 +145,6 @@ vite.config.ts.timestamp-*
 .envrc
 .direnv
 
-tests/test.json
+# Smoketest files
+event.json
+result.json

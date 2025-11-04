@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+
+[[ "$TRACE" ]] && set -o xtrace
+set -o errexit
+set -o nounset
+set -o pipefail
+
+STAGE="$1"
+
+if [ -z "$STAGE" ]; then
+  echo "Usage: $0 <stage>"
+  exit 1
+fi
+
+function generate_event() {
+  local event_type="$1"
+  local output_file="event.json"
+
+  .github/bin/generate-event "$STAGE" "$event_type" > "$output_file"
+}
+
+function invoke_lambda() {
+  local function_name="$1"
+  local event_file="event.json"
+  local result_file="result.json"
+
+  aws lambda invoke \
+    --function-name "$function_name" \
+    --payload "file://$event_file" \
+    --cli-binary-format raw-in-base64-out \
+    --region us-east-1 \
+    "$result_file"
+}
+
+function assert_header() {
+  local header_name="$1"
+  local expected_value="${2:-}"
+  local actual_value
+  local headers
+
+  headers=$(jq -r '.headers' result.json)
+
+  if [ "$headers" == "null" ]; then
+    echo "No headers found in response"
+    exit 1
+  fi
+
+  actual_value=$(jq -r --arg header_name "$header_name" '.headers[$header_name][0].value' result.json)
+
+  if [ "$actual_value" == "null" ]; then
+    echo "Header $header_name not found in response"
+    exit 1
+  fi
+
+  if [ -n "$expected_value" ] && [ "$actual_value" != "$expected_value" ]; then
+    echo "Expected header $header_name to have value '$expected_value' but got '$actual_value'"
+    exit 1
+  fi
+}
+
+function refute_header() {
+  local header_name="$1"
+  local actual_value
+  local headers
+
+  headers=$(jq -r '.headers' result.json)
+
+  if [ "$headers" == "null" ]; then
+    return
+  fi
+
+  actual_value=$(jq -r --arg header_name "$header_name" '.headers[$header_name][0].value' result.json)
+
+  if [ "$actual_value" != "null" ]; then
+    echo "Header $header_name was found in response but should not be present"
+    exit 1
+  fi
+}
+
+function assert_status() {
+  local expected_status="$1"
+  local actual_status
+
+  actual_status=$(jq -r '.status' result.json)
+
+  if [ "$actual_status" != "$expected_status" ]; then
+    echo "Expected status $expected_status but got $actual_status"
+    exit 1
+  fi
+}
+
+function assert_body() {
+  local expected_body="$1"
+  local actual_body
+
+  actual_body=$(jq -r '.body' result.json)
+
+  if [ "$actual_body" != "$expected_body" ]; then
+    echo "Expected body '$expected_body' but got '$actual_body'"
+    exit 1
+  fi
+}
+
+function main() {
+  local function_name="viewer-request-${STAGE}-auth"
+
+  generate_event "authorised"
+  invoke_lambda "$function_name"
+  assert_header "x-client-id"
+
+  generate_event "unauthenticated"
+  invoke_lambda "$function_name"
+  refute_header "x-client-id"
+  assert_status 401
+  assert_body "Invalid or expired token"
+
+  generate_event "unauthenticated_forwarded"
+  invoke_lambda "$function_name"
+  assert_header "x-client-id" "unknown"
+
+  generate_event "unauthorised"
+  invoke_lambda "$function_name"
+  refute_header "x-client-id"
+  assert_status 403
+  assert_body "Insufficient scopes for this path"
+}
+
+main
