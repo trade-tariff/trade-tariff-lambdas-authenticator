@@ -50,4 +50,4 @@ jobs:
 
       - run: make deploy-${{ env.STAGE }}
 
-      - run: make publish
+      - run: make publish-${{ env.STAGE }}

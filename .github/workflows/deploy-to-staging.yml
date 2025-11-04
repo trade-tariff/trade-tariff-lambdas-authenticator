@@ -30,10 +30,10 @@ jobs:
           role-to-assume: arn:aws:iam::451934005581:role/GithubActions-Serverless-Lambda-Role
           aws-region: ${{ env.AWS_REGION }}
 
-      - run: yarn add -g serverless@^3
+      - run: yarn global add serverless@^3
 
       - run: yarn install --frozen-lockfile --production # NOTE: To keep the lambda package size down, we only install production dependencies
 
-      - run: make deploy
+      - run: make deploy-${{ env.STAGE }}
 
-      - run: make publish
+      - run: make publish-${{ env.STAGE }}

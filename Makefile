@@ -32,5 +32,11 @@ deploy-staging: configure-staging
 deploy-production: configure-production
 	.github/bin/deploy production
 
-publish:
-	.github/bin/publish-version $STAGE
+publish-development:
+	.github/bin/publish-version development
+
+publish-staging:
+	.github/bin/publish-version staging
+
+publish-production:
+	.github/bin/publish-version production
