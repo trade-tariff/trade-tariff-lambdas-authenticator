@@ -92,7 +92,11 @@ module.exports.handler = async (event, _context, callback) => {
       });
     }
 
-    const allowed = await applyRateLimit(ddbClient, DYNAMODB_TABLE, clientId);
+    const { allowed, rateLimitRemaining } = await applyRateLimit(
+      ddbClient,
+      DYNAMODB_TABLE,
+      clientId,
+    );
 
     if (!allowed) {
       console.debug(`Rate limit exceeded for clientId ${clientId}`);
@@ -100,10 +104,24 @@ module.exports.handler = async (event, _context, callback) => {
         status: "429",
         statusDescription: "Too Many Requests",
         body: "Rate limit exceeded",
+        headers: {
+          "x-rate-limit-remaining": [
+            {
+              key: "X-Rate-Limit-Remaining",
+              value: "0",
+            },
+          ],
+        },
       });
     }
 
-    // If authenticated and scopes ok, stamp with X-Client-Id
+    request.headers["x-rate-limit-remaining"] = [
+      {
+        key: "X-Rate-Limit-Remaining",
+        value: rateLimitRemaining.toString(),
+      },
+    ];
+
     request.headers["x-client-id"] = [
       {
         key: "X-Client-Id",

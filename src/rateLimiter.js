@@ -68,7 +68,7 @@ async function applyRateLimit(ddbClient, table, clientId) {
     console.debug(
       `Rate limit check failed: Insufficient tokens after refill (potential: ${potentialTokens})`,
     );
-    return false;
+    return { allowed: false, rateLimitRemaining: 0 };
   }
 
   const updateParams = {
@@ -95,21 +95,22 @@ async function applyRateLimit(ddbClient, table, clientId) {
     ReturnValues: "UPDATED_NEW",
   };
 
+  const rateLimitRemaining = Math.floor(newTokens);
   try {
     const result = await ddbClient.send(new UpdateItemCommand(updateParams));
     if (!result.Attributes) {
       console.debug(
         "Rate limit update did not return attributes; denying to be safe",
       );
-      return false;
+      return { allowed: false, rateLimitRemaining: 0 };
     }
-    return true;
+    return { allowed: true, rateLimitRemaining: rateLimitRemaining };
   } catch (err) {
     if (err.name === "ConditionalCheckFailedException") {
       console.debug(
         "Conditional update failed (concurrent modification); denying to be safe",
       );
-      return false;
+      return { allowed: false, rateLimitRemaining: 0 };
     }
     console.error("DynamoDB UpdateItem error:", err);
     throw err;
