@@ -107,22 +107,26 @@ function main() {
   generate_event "authorised"
   invoke_lambda "$function_name"
   assert_header "x-client-id"
+  echo "✅ Authorised test passed."
 
   generate_event "unauthenticated"
   invoke_lambda "$function_name"
   refute_header "x-client-id"
   assert_status 401
-  assert_body "Invalid or expired token"
+  assert_body '{"errors":[{"status":"401","title":"Unauthorized","detail":"Authentication credentials were missing, incorrect or expired. Please sign up to the service to obtain valid credentials at https://hub.trade-tariff.service.gov.uk."}]}'
+  echo "✅ Unauthenticated test passed."
 
   generate_event "unauthenticated_forwarded"
   invoke_lambda "$function_name"
   assert_header "x-client-id" "unknown"
+  echo "✅ Unauthenticated forwarded test passed."
 
   generate_event "unauthorised"
   invoke_lambda "$function_name"
   refute_header "x-client-id"
   assert_status 403
-  assert_body "Insufficient scopes for this path"
+  assert_body '{"errors":[{"status":"403","title":"Forbidden","detail":"You do not have permission to access this resource. Request access by signing up to the service at https://hub.trade-tariff.service.gov.uk."}]}'
+  echo "✅ Unauthorised test passed."
 }
 
 main
