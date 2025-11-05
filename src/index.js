@@ -5,16 +5,48 @@ const { debug, info, warn, error } = require("./logger");
 const { jwtDecode } = require("jwt-decode");
 
 const DYNAMODB_TABLE = "client-rate-limits";
-const USER_POOL_ID = "eu-west-2_eYCVlIQL0";
+const USER_POOL_ID = "eu-west-2_h8JF71jvX";
 const SCOPES = {
   "tariff/read": {
-    excludedPaths: ["green_lanes", "user"],
-    allowedPaths: ["/uk/api", "/xi/api", "/api"],
+    excludedPaths: ["green_lanes", "user", "admin", "notifications"],
+    allowedPaths: ["/uk/api", "/xi/api"],
+  },
+  "tariff/write": {
+    excludedPaths: ["/xi/api/green_lanes"],
+    allowedPaths: ["/uk/api", "/xi/api", "/uk/admin", "/xi/admin"],
+  },
+  "fpo/read": {
+    allowedPaths: ["/fpo-code-search"],
+  },
+  "spimm/read": {
+    allowedPaths: ["/xi/api/green_lanes"],
   },
 };
 
-// NOTE: All of our viewer requests originate from CloudFront in the eu-west-2 region
-// so we create the DynamoDB client in that region.
+const ERRORS = {
+  unauthorized: JSON.stringify({
+    errors: [
+      {
+        status: "401",
+        title: "Unauthorized",
+        detail:
+          "Authentication credentials were missing, incorrect or expired. Please sign up to the service to obtain valid credentials at https://hub.trade-tariff.service.gov.uk.",
+      },
+    ],
+  }),
+  forbidden: JSON.stringify({
+    errors: [
+      {
+        status: "403",
+        title: "Forbidden",
+        detail:
+          "You do not have permission to access this resource. Request access by signing up to the service at https://hub.trade-tariff.service.gov.uk.",
+      },
+    ],
+  }),
+};
+
+// NOTE: All of our viewer requests originate from CloudFront in the eu-west-2 region so we create the DynamoDB client in that region.
 // This reduces latency and avoids potential issues with regional endpoints.
 const ddbClient = new DynamoDBClient({ region: "eu-west-2" });
 
@@ -63,7 +95,7 @@ module.exports.handler = async (event, _context, callback) => {
     return callback(null, {
       status: "401",
       statusDescription: "Unauthorized",
-      body: "Invalid Authorization header format",
+      body: ERRORS.unauthorized,
     });
   }
   const token = authValue.split(" ")[1];
@@ -90,7 +122,7 @@ module.exports.handler = async (event, _context, callback) => {
       return callback(null, {
         status: "403",
         statusDescription: "Forbidden",
-        body: "Insufficient scopes for this path",
+        body: ERRORS.forbidden,
       });
     }
 
@@ -139,7 +171,7 @@ module.exports.handler = async (event, _context, callback) => {
     return callback(null, {
       status: "401",
       statusDescription: "Unauthorized",
-      body: "Invalid or expired token",
+      body: ERRORS.unauthorized,
     });
   }
 };

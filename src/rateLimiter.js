@@ -4,19 +4,37 @@ const {
 } = require("@aws-sdk/client-dynamodb");
 const { debug, info, warn, error } = require("./logger");
 
+function sanitizeNumber(
+  value,
+  defaultValue,
+  minValue = undefined,
+  maxValue = undefined,
+) {
+  let num = Number(value);
+  if (isNaN(num)) {
+    return defaultValue;
+  }
+  if (minValue !== undefined && num < minValue) {
+    num = minValue;
+  }
+  if (maxValue !== undefined && num > maxValue) {
+    num = maxValue;
+  }
+  return num;
+}
+
 // Atomic Token Bucket Rate Limiter
-// Refill Rate: 500 tokens per minute
-// Burst Allowance: 2500 tokens
 // Each request consumes 1 token from the bucket
 // If no tokens are available, the request is denied
 // Tokens are refilled based on the elapsed time since the last refill
 // This implementation uses DynamoDB to store the token bucket state for each client atomically via read-then-conditional-write.
 async function applyRateLimit(ddbClient, table, clientId) {
   const currentTime = Math.floor(Date.now() / 1000); // Seconds for simplicity; use ms for finer granularity if needed
-
-  const defaultRefillRate = 500; // Tokens per interval
+  const defaultRefillRate = 750; // Tokens per interval
   const defaultInterval = 60; // Seconds
-  const defaultMaxTokens = 2500; // Burst allowance
+  const defaultMaxTokens = 750; // Burst allowance
+  const hardMaxTokens = 2500; // Absolute maximum tokens to prevent abuse
+  const hardMaxRefillRate = 2500; // Absolute maximum refill rate to prevent abuse
 
   const getParams = {
     TableName: table,
@@ -24,6 +42,7 @@ async function applyRateLimit(ddbClient, table, clientId) {
     ProjectionExpression:
       "tokens, lastRefill, refillRate, refillInterval, maxTokens",
   };
+
   let item;
   try {
     const getResult = await ddbClient.send(new GetItemCommand(getParams));
@@ -43,31 +62,54 @@ async function applyRateLimit(ddbClient, table, clientId) {
     }
   }
 
-  // Extract values, using defaults if new client or missing
-  const lastRefill = item?.lastRefill ? Number(item.lastRefill.N) : currentTime;
-  const refillRate = item?.refillRate
-    ? Number(item.refillRate.N)
-    : defaultRefillRate;
-  const refillInterval = item?.refillInterval
-    ? Number(item.refillInterval.N)
-    : defaultInterval;
-  const maxTokens = item?.maxTokens
-    ? Number(item.maxTokens.N)
-    : defaultMaxTokens;
-  const currentTokens = item?.tokens ? Number(item.tokens.N) : maxTokens;
+  // Sanitize values and set defaults, mins and maxes
+  const lastRefill = sanitizeNumber(item?.lastRefill?.N, currentTime, 0);
+  const refillRate = sanitizeNumber(
+    item?.refillRate?.N,
+    defaultRefillRate,
+    1,
+    hardMaxRefillRate,
+  );
+  const refillInterval = sanitizeNumber(
+    item?.refillInterval?.N,
+    defaultInterval,
+    1,
+  );
+  const maxTokens = sanitizeNumber(
+    item?.maxTokens?.N,
+    defaultMaxTokens,
+    1,
+    hardMaxTokens,
+  );
+  const currentTokens = sanitizeNumber(
+    item?.tokens?.N,
+    maxTokens,
+    0,
+    maxTokens,
+  );
 
   const timeDelta = Math.max(0, currentTime - lastRefill);
-  const refillAmount = (refillRate * timeDelta) / refillInterval;
+  if (timeDelta < 0) {
+    warn(`Negative time delta detected for client ${clientId}; clock skew?`);
+  }
 
+  const refillAmount = Math.floor((refillRate * timeDelta) / refillInterval);
   const potentialTokens = currentTokens + refillAmount;
   const cappedTokens = Math.min(potentialTokens, maxTokens);
   const newTokens = cappedTokens - 1;
+
+  debug(`Calculated tokens for ${clientId}`, {
+    currentTokens,
+    refillAmount,
+    cappedTokens,
+    newTokens,
+  });
 
   if (newTokens < 0) {
     debug(
       `Rate limit check failed: Insufficient tokens after refill (potential: ${potentialTokens})`,
     );
-    return { allowed: false, rateLimitRemaining: 0 };
+    return { allowed: false, rateLimitRemaining: Math.floor(cappedTokens) };
   }
 
   const updateParams = {
@@ -76,15 +118,15 @@ async function applyRateLimit(ddbClient, table, clientId) {
     UpdateExpression: `
       SET tokens = :newTokens,
           lastRefill = :currentTime,
-          refillRate = if_not_exists(refillRate, :refillRate),
-          refillInterval = if_not_exists(refillInterval, :refillInterval),
-          maxTokens = if_not_exists(maxTokens, :maxTokens)
+          refillRate = :refillRate,
+          refillInterval = :refillInterval,
+          maxTokens = :maxTokens
     `,
     ConditionExpression: `
       attribute_not_exists(lastRefill) OR lastRefill = :oldLastRefill
     `,
     ExpressionAttributeValues: {
-      ":newTokens": { N: newTokens.toString() },
+      ":newTokens": { N: Math.floor(newTokens).toString() },
       ":currentTime": { N: currentTime.toString() },
       ":refillRate": { N: refillRate.toString() },
       ":refillInterval": { N: refillInterval.toString() },
@@ -95,12 +137,13 @@ async function applyRateLimit(ddbClient, table, clientId) {
   };
 
   const rateLimitRemaining = Math.floor(newTokens);
+
   try {
     const result = await ddbClient.send(new UpdateItemCommand(updateParams));
-    if (!result.Attributes) {
-      debug("Rate limit update did not return attributes; denying to be safe");
-      return { allowed: false, rateLimitRemaining: 0 };
-    }
+    debug(
+      `Rate limit update succeeded for client ${clientId}`,
+      result.Attributes,
+    );
     return { allowed: true, rateLimitRemaining: rateLimitRemaining };
   } catch (err) {
     if (err.name === "ConditionalCheckFailedException") {
