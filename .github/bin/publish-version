@@ -21,10 +21,10 @@ main() {
   export AWS_REGION="us-east-1"
 
   STAGE="$1"
-  FUNCTION_NAME="viewer-request-$STAGE-auth"
   DESCRIPTION="Published on $(date +"%Y-%m-%dT%H:%M:%SZ")"
 
-  publish_new_version "$FUNCTION_NAME" "$DESCRIPTION"
+  publish_new_version "viewer-request-$STAGE-auth" "$DESCRIPTION"
+  publish_new_version "viewer-request-$STAGE-response" "$DESCRIPTION"
 }
 
 main "$@"
