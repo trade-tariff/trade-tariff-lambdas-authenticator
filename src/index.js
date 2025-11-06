@@ -1,7 +1,7 @@
 const { CognitoJwtVerifier } = require("aws-jwt-verify");
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const { applyRateLimit } = require("./rateLimiter");
-const { debug, info, warn, error } = require("./logger");
+const { error } = require("./logger");
 const { jwtDecode } = require("jwt-decode");
 
 const DYNAMODB_TABLE = "client-rate-limits";
@@ -85,14 +85,12 @@ module.exports.request_handler = async (event, _context, callback) => {
 
   // If no Authorization header, forward as unauthenticated
   if (!authHeader || authHeader.length === 0) {
-    info("No Authorization header found - forwarding as unauthenticated");
     request.headers["x-client-id"] = [{ key: "X-Client-Id", value: "unknown" }];
     return callback(null, request);
   }
 
   const authValue = authHeader[0].value;
   if (!authValue.startsWith("Bearer ")) {
-    info("Invalid Authorization header format");
     return callback(null, {
       status: "401",
       statusDescription: "Unauthorized",
@@ -103,7 +101,6 @@ module.exports.request_handler = async (event, _context, callback) => {
 
   try {
     const decoded = jwtDecode(token);
-    debug("Decoded token:", decoded);
     const clientId = decoded.client_id;
 
     const verifier = CognitoJwtVerifier.create({
@@ -113,13 +110,10 @@ module.exports.request_handler = async (event, _context, callback) => {
     });
 
     const payload = await verifier.verify(token);
-    debug("Token verified successfully");
-
     const scopes = payload.scope;
     const path = request.uri;
 
     if (!authorised(scopes, path)) {
-      info(`Forbidden: Insufficient scopes for path ${path}`);
       return callback(null, {
         status: "403",
         statusDescription: "Forbidden",
@@ -127,8 +121,13 @@ module.exports.request_handler = async (event, _context, callback) => {
       });
     }
 
-    const { allowed, rateLimitRemaining, rateLimitLimit, rateLimitReset } =
-      await applyRateLimit(ddbClient, DYNAMODB_TABLE, clientId);
+    const {
+      allowed,
+      rateLimitRemaining,
+      rateLimitLimit,
+      rateLimitReset,
+      collision,
+    } = await applyRateLimit(ddbClient, DYNAMODB_TABLE, clientId);
 
     const rateLimitHeaders = {
       "x-ratelimit-limit": [
@@ -142,8 +141,13 @@ module.exports.request_handler = async (event, _context, callback) => {
       ],
     };
 
+    if (collision) {
+      rateLimitHeaders["x-ratelimit-collision"] = [
+        { key: "X-RateLimit-Collision", value: "true" },
+      ];
+    }
+
     if (!allowed) {
-      debug(`Rate limit exceeded for clientId ${clientId}`);
       return callback(null, {
         status: "429",
         statusDescription: "Too Many Requests",
@@ -176,11 +180,6 @@ module.exports.request_handler = async (event, _context, callback) => {
 module.exports.response_handler = async (event) => {
   const { request, response } = event.Records[0].cf;
 
-  debug("Viewer response handler invoked");
-  debug("Request:", request);
-  debug("Response:", response);
-
-  response.headers["x-client-id"] = request.headers["x-client-id"] || [];
   response.headers["x-ratelimit-limit"] =
     request.headers["x-ratelimit-limit"] || [];
   response.headers["x-ratelimit-remaining"] =
@@ -188,7 +187,5 @@ module.exports.response_handler = async (event) => {
   response.headers["x-ratelimit-reset"] =
     request.headers["x-ratelimit-reset"] || [];
 
-  debug("Modified Response:", response);
-  debug("Viewer response handler completed");
   return response;
 };

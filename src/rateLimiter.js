@@ -2,7 +2,7 @@ const {
   GetItemCommand,
   UpdateItemCommand,
 } = require("@aws-sdk/client-dynamodb");
-const { debug, info, warn, error } = require("./logger");
+const { error } = require("./logger");
 
 function sanitizeNumber(
   value,
@@ -59,17 +59,7 @@ function sanitizeItem(item) {
     currentTime,
   );
   const tokens = sanitizeNumber(item?.tokens?.N, maxTokens, 0, maxTokens);
-
-  const rawDelta = currentTime - lastRefill;
-
-  if (rawDelta < 0) {
-    warn(
-      `Clock skew detected: currentTime(${currentTime}) < lastRefill(${lastRefill})`,
-    );
-  }
-
-  const timeDelta = Math.max(0, rawDelta);
-
+  const timeDelta = Math.max(0, currentTime - lastRefill);
   const refillAmount = Math.floor(
     (refillRate * timeDelta) / (refillInterval * 1000),
   );
@@ -127,6 +117,7 @@ async function applyRateLimit(ddbClient, table, clientId) {
     allowed: item.cappedTokensFloored >= 1,
     rateLimitRemaining: item.cappedTokensFloored, // Pre-consumption for denied
     rateLimitLimit: item.maxTokens,
+    collision: false,
   };
 
   if (rateLimitResult.rateLimitRemaining < item.maxTokens) {
@@ -141,13 +132,6 @@ async function applyRateLimit(ddbClient, table, clientId) {
 
   let newTokens = item.cappedTokensFloored - 1; // Post-consumption for allowed
 
-  debug(`Calculated tokens for ${clientId}`, {
-    currentTokens: item.tokens,
-    refillAmount: item.refillAmount,
-    cappedTokens: item.cappedTokensFloored,
-    newTokens: rateLimitResult.allowed ? newTokens : "N/A",
-  });
-
   if (rateLimitResult.allowed) {
     rateLimitResult.rateLimitRemaining = newTokens;
     if (rateLimitResult.rateLimitRemaining < item.maxTokens) {
@@ -160,9 +144,6 @@ async function applyRateLimit(ddbClient, table, clientId) {
       rateLimitResult.rateLimitReset = 0;
     }
   } else {
-    debug(
-      `Rate limit check failed: Insufficient tokens after refill (potential: ${item.potentialTokens})`,
-    );
     return rateLimitResult;
   }
 
@@ -192,15 +173,12 @@ async function applyRateLimit(ddbClient, table, clientId) {
 
   try {
     const result = await ddbClient.send(new UpdateItemCommand(updateParams));
-    debug(`Rate limit update succeeded for client ${clientId}`, result);
     rateLimitResult.allowed = true;
     return rateLimitResult;
   } catch (err) {
     if (err.name === "ConditionalCheckFailedException") {
-      debug(
-        "Conditional update failed (concurrent modification); denying to be safe",
-      );
       rateLimitResult.allowed = false;
+      rateLimitResult.collision = true;
       return rateLimitResult;
     }
     error("DynamoDB UpdateItem error:", err);
