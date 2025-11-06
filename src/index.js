@@ -54,19 +54,20 @@ function authorised(scopes, path) {
   const scopeList = scopes ? scopes.split(" ") : [];
 
   for (const scope of scopeList) {
-    const excludedPaths = SCOPES[scope]?.excludedPaths;
-    const allowedPaths = SCOPES[scope]?.allowedPaths;
-
-    if (excludedPaths) {
-      for (const excludedPath of excludedPaths) {
+    const config = SCOPES[scope];
+    if (!config) continue;
+    let isExcluded = false;
+    if (config.excludedPaths) {
+      for (const excludedPath of config.excludedPaths) {
         if (path.includes(excludedPath)) {
-          return false;
+          isExcluded = true;
+          break;
         }
       }
     }
-
-    if (allowedPaths) {
-      for (const allowedPath of allowedPaths) {
+    if (isExcluded) continue;
+    if (config.allowedPaths) {
+      for (const allowedPath of config.allowedPaths) {
         if (path.startsWith(allowedPath)) {
           return true;
         }
@@ -77,7 +78,7 @@ function authorised(scopes, path) {
   return false;
 }
 
-module.exports.handler = async (event, _context, callback) => {
+module.exports.request_handler = async (event, _context, callback) => {
   const request = event.Records[0].cf.request;
   const headers = request.headers;
   const authHeader = headers["authorization"];
@@ -126,11 +127,20 @@ module.exports.handler = async (event, _context, callback) => {
       });
     }
 
-    const { allowed, rateLimitRemaining } = await applyRateLimit(
-      ddbClient,
-      DYNAMODB_TABLE,
-      clientId,
-    );
+    const { allowed, rateLimitRemaining, rateLimitLimit, rateLimitReset } =
+      await applyRateLimit(ddbClient, DYNAMODB_TABLE, clientId);
+
+    const rateLimitHeaders = {
+      "x-ratelimit-limit": [
+        { key: "X-RateLimit-Limit", value: rateLimitLimit.toString() },
+      ],
+      "x-ratelimit-remaining": [
+        { key: "X-RateLimit-Remaining", value: rateLimitRemaining.toString() },
+      ],
+      "x-ratelimit-reset": [
+        { key: "X-RateLimit-Reset", value: rateLimitReset.toString() },
+      ],
+    };
 
     if (!allowed) {
       debug(`Rate limit exceeded for clientId ${clientId}`);
@@ -138,23 +148,10 @@ module.exports.handler = async (event, _context, callback) => {
         status: "429",
         statusDescription: "Too Many Requests",
         body: "Rate limit exceeded",
-        headers: {
-          "x-rate-limit-remaining": [
-            {
-              key: "X-Rate-Limit-Remaining",
-              value: "0",
-            },
-          ],
-        },
+        headers: rateLimitHeaders,
       });
     }
-
-    request.headers["x-rate-limit-remaining"] = [
-      {
-        key: "X-Rate-Limit-Remaining",
-        value: rateLimitRemaining.toString(),
-      },
-    ];
+    Object.assign(request.headers, rateLimitHeaders);
 
     request.headers["x-client-id"] = [
       {
@@ -174,4 +171,24 @@ module.exports.handler = async (event, _context, callback) => {
       body: ERRORS.unauthorized,
     });
   }
+};
+
+module.exports.response_handler = async (event) => {
+  const { request, response } = event.Records[0].cf;
+
+  debug("Viewer response handler invoked");
+  debug("Request:", request);
+  debug("Response:", response);
+
+  response.headers["x-client-id"] = request.headers["x-client-id"] || [];
+  response.headers["x-ratelimit-limit"] =
+    request.headers["x-ratelimit-limit"] || [];
+  response.headers["x-ratelimit-remaining"] =
+    request.headers["x-ratelimit-remaining"] || [];
+  response.headers["x-ratelimit-reset"] =
+    request.headers["x-ratelimit-reset"] || [];
+
+  debug("Modified Response:", response);
+  debug("Viewer response handler completed");
+  return response;
 };
