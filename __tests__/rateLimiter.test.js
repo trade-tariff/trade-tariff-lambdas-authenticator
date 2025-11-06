@@ -1,10 +1,8 @@
 const { applyRateLimit } = require("../src/rateLimiter");
 const { GetItemCommand } = require("@aws-sdk/client-dynamodb");
-
 // Mock DynamoDB client
 const mockSend = jest.fn();
 const mockDdbClient = { send: mockSend };
-
 describe("applyRateLimit", () => {
   beforeEach(() => {
     jest.resetAllMocks();
@@ -24,13 +22,18 @@ describe("applyRateLimit", () => {
       "client-rate-limits",
       "test-client",
     );
-    expect(result).toStrictEqual({ allowed: true, rateLimitRemaining: 749 });
+    expect(result).toStrictEqual({
+      allowed: true,
+      rateLimitRemaining: 749,
+      rateLimitLimit: 750,
+      rateLimitReset: 1,
+    });
     expect(mockSend).toHaveBeenCalledTimes(2);
     expect(mockSend.mock.calls[0][0]).toBeInstanceOf(GetItemCommand);
     const updateParams = mockSend.mock.calls[1][0].input;
     expect(updateParams.ExpressionAttributeValues[":newTokens"].N).toBe("749");
     expect(updateParams.ExpressionAttributeValues[":oldLastRefill"].N).toBe(
-      "1762183800",
+      "1762183800000",
     );
     expect(updateParams.ExpressionAttributeValues[":maxTokens"].N).toBe("750"); // Default persisted
     expect(updateParams.ExpressionAttributeValues[":refillRate"].N).toBe("750"); // Default persisted
@@ -41,7 +44,7 @@ describe("applyRateLimit", () => {
     mockSend.mockResolvedValueOnce({
       Item: {
         tokens: { N: "0" },
-        lastRefill: { N: "1762183800" },
+        lastRefill: { N: "1762183800000" },
         refillRate: { N: "750" },
         refillInterval: { N: "60" },
         maxTokens: { N: "750" },
@@ -52,7 +55,12 @@ describe("applyRateLimit", () => {
       "client-rate-limits",
       "test-client",
     );
-    expect(result).toStrictEqual({ allowed: false, rateLimitRemaining: 0 });
+    expect(result).toStrictEqual({
+      allowed: false,
+      rateLimitRemaining: 0,
+      rateLimitLimit: 750,
+      rateLimitReset: 60,
+    });
     expect(mockSend).toHaveBeenCalledTimes(1); // No update attempted
   });
 
@@ -61,7 +69,7 @@ describe("applyRateLimit", () => {
     mockSend.mockResolvedValueOnce({
       Item: {
         tokens: { N: "0" },
-        lastRefill: { N: "1762183800" },
+        lastRefill: { N: "1762183800000" },
         refillRate: { N: "750" },
         refillInterval: { N: "60" },
         maxTokens: { N: "750" },
@@ -73,11 +81,16 @@ describe("applyRateLimit", () => {
       "client-rate-limits",
       "test-client",
     );
-    expect(result).toStrictEqual({ allowed: true, rateLimitRemaining: 374 });
+    expect(result).toStrictEqual({
+      allowed: true,
+      rateLimitRemaining: 374,
+      rateLimitLimit: 750,
+      rateLimitReset: 31,
+    });
     const updateParams = mockSend.mock.calls[1][0].input;
     expect(updateParams.ExpressionAttributeValues[":newTokens"].N).toBe("374"); // floor((0 + 375) -1)
     expect(updateParams.ExpressionAttributeValues[":oldLastRefill"].N).toBe(
-      "1762183800",
+      "1762183800000",
     );
   });
 
@@ -92,7 +105,13 @@ describe("applyRateLimit", () => {
       "client-rate-limits",
       "test-client",
     );
-    expect(result).toStrictEqual({ allowed: false, rateLimitRemaining: 0 });
+
+    expect(result).toStrictEqual({
+      allowed: false,
+      rateLimitRemaining: 749,
+      rateLimitLimit: 750,
+      rateLimitReset: 1,
+    });
     expect(mockSend).toHaveBeenCalledTimes(2);
   });
 
@@ -109,7 +128,12 @@ describe("applyRateLimit", () => {
       "client-rate-limits",
       "test-client",
     );
-    expect(result).toStrictEqual({ allowed: true, rateLimitRemaining: 2499 });
+    expect(result).toStrictEqual({
+      allowed: true,
+      rateLimitRemaining: 2499,
+      rateLimitLimit: 2500,
+      rateLimitReset: 1,
+    });
     const updateParams = mockSend.mock.calls[1][0].input;
     expect(updateParams.ExpressionAttributeValues[":newTokens"].N).toBe("2499");
     expect(updateParams.ExpressionAttributeValues[":maxTokens"].N).toBe("2500"); // Capped and persisted
@@ -120,7 +144,7 @@ describe("applyRateLimit", () => {
     mockSend.mockResolvedValueOnce({
       Item: {
         tokens: { N: "0" },
-        lastRefill: { N: "1762183800" },
+        lastRefill: { N: "1762183800000" },
         refillRate: { N: "abc" }, // Invalid NaN
         refillInterval: { N: "60" },
         maxTokens: { N: "750" },
@@ -132,17 +156,21 @@ describe("applyRateLimit", () => {
       "client-rate-limits",
       "test-client",
     );
-    expect(result).toStrictEqual({ allowed: true, rateLimitRemaining: 374 }); // Uses default 750 for refill
+    expect(result).toStrictEqual({
+      allowed: true,
+      rateLimitRemaining: 374,
+      rateLimitLimit: 750,
+      rateLimitReset: 31,
+    }); // Uses default 750 for refill
     const updateParams = mockSend.mock.calls[1][0].input;
     expect(updateParams.ExpressionAttributeValues[":refillRate"].N).toBe("750"); // Persisted default
   });
-
   it("clamps negative tokens to 0 and denies if no refill", async () => {
     jest.setSystemTime(new Date(2025, 10, 3, 15, 30, 0));
     mockSend.mockResolvedValueOnce({
       Item: {
         tokens: { N: "-5" }, // Negative
-        lastRefill: { N: "1762183800" },
+        lastRefill: { N: "1762183800000" },
         refillRate: { N: "750" },
         refillInterval: { N: "60" },
         maxTokens: { N: "750" },
@@ -153,7 +181,12 @@ describe("applyRateLimit", () => {
       "client-rate-limits",
       "test-client",
     );
-    expect(result).toStrictEqual({ allowed: false, rateLimitRemaining: 0 }); // Clamped to 0, denied
+    expect(result).toStrictEqual({
+      allowed: false,
+      rateLimitRemaining: 0,
+      rateLimitLimit: 750,
+      rateLimitReset: 60,
+    }); // Clamped to 0, denied
     expect(mockSend).toHaveBeenCalledTimes(1);
   });
 
@@ -162,7 +195,7 @@ describe("applyRateLimit", () => {
     mockSend.mockResolvedValueOnce({
       Item: {
         tokens: { N: "0" },
-        lastRefill: { N: "1762183800" },
+        lastRefill: { N: "1762183800000" },
         refillRate: { N: "0" }, // Below min
         refillInterval: { N: "60" },
         maxTokens: { N: "750" },
@@ -174,7 +207,12 @@ describe("applyRateLimit", () => {
       "client-rate-limits",
       "test-client",
     );
-    expect(result).toStrictEqual({ allowed: false, rateLimitRemaining: 0 });
+    expect(result).toStrictEqual({
+      allowed: false,
+      rateLimitRemaining: 0,
+      rateLimitLimit: 750,
+      rateLimitReset: 45000,
+    });
     const updateParams = mockSend.mock.calls[1];
     expect(mockSend).toHaveBeenCalledTimes(1);
   });
@@ -196,26 +234,11 @@ describe("applyRateLimit", () => {
       "client-rate-limits",
       "test-client",
     );
-    expect(result).toStrictEqual({ allowed: true, rateLimitRemaining: 749 });
-  });
-
-  it("clamps refillRate below min to 1", async () => {
-    jest.setSystemTime(new Date(2025, 10, 3, 15, 30, 30)); // +30s
-    mockSend.mockResolvedValueOnce({
-      Item: {
-        tokens: { N: "0" },
-        lastRefill: { N: "1762183800" },
-        refillRate: { N: "0" }, // Below min
-        refillInterval: { N: "60" },
-        maxTokens: { N: "750" },
-      },
+    expect(result).toStrictEqual({
+      allowed: true,
+      rateLimitRemaining: 749,
+      rateLimitLimit: 750,
+      rateLimitReset: 1,
     });
-    const result = await applyRateLimit(
-      mockDdbClient,
-      "client-rate-limits",
-      "test-client",
-    );
-    expect(result).toStrictEqual({ allowed: false, rateLimitRemaining: 0 });
-    expect(mockSend).toHaveBeenCalledTimes(1);
   });
 });

@@ -23,47 +23,24 @@ function sanitizeNumber(
   return num;
 }
 
-// Atomic Token Bucket Rate Limiter
-// Each request consumes 1 token from the bucket
-// If no tokens are available, the request is denied
-// Tokens are refilled based on the elapsed time since the last refill
-// This implementation uses DynamoDB to store the token bucket state for each client atomically via read-then-conditional-write.
-async function applyRateLimit(ddbClient, table, clientId) {
-  const currentTime = Math.floor(Date.now() / 1000); // Seconds for simplicity; use ms for finer granularity if needed
-  const defaultRefillRate = 750; // Tokens per interval
-  const defaultInterval = 60; // Seconds
-  const defaultMaxTokens = 750; // Burst allowance
+// Sanitize and set defaults for DynamoDB item attributes
+// Handles missing or malformed data gracefully and caps values to prevent abuse
+// Returns a sanitized item object with guaranteed valid numeric fields
+function sanitizeItem(item) {
+  const currentTime = Date.now(); // In milliseconds (Using milliseconds reduces ABA problem likelihood https://grokipedia.com/page/ABA_problem)
   const hardMaxTokens = 2500; // Absolute maximum tokens to prevent abuse
   const hardMaxRefillRate = 2500; // Absolute maximum refill rate to prevent abuse
 
-  const getParams = {
-    TableName: table,
-    Key: { clientId: { S: clientId } },
-    ProjectionExpression:
-      "tokens, lastRefill, refillRate, refillInterval, maxTokens",
-  };
+  const defaultRefillRate = 750; // Tokens per interval
+  const defaultInterval = 60; // Seconds
+  const defaultMaxTokens = 750; // Burst allowance
 
-  let item;
-  try {
-    const getResult = await ddbClient.send(new GetItemCommand(getParams));
-    item = getResult.Item;
-  } catch (err) {
-    if (err.name === "ResourceNotFoundException") {
-      if (err.message.includes(table)) {
-        error(`DynamoDB table ${table} not found:`, err);
-        throw err;
-      } else {
-        debug(`Client ${clientId} not found in table; treating as new client`);
-        item = {}; // New client
-      }
-    } else {
-      error("DynamoDB GetItem error:", err);
-      throw err;
-    }
-  }
-
-  // Sanitize values and set defaults, mins and maxes
-  const lastRefill = sanitizeNumber(item?.lastRefill?.N, currentTime, 0);
+  const maxTokens = sanitizeNumber(
+    item?.maxTokens?.N,
+    defaultMaxTokens,
+    1,
+    hardMaxTokens,
+  );
   const refillRate = sanitizeNumber(
     item?.refillRate?.N,
     defaultRefillRate,
@@ -75,41 +52,118 @@ async function applyRateLimit(ddbClient, table, clientId) {
     defaultInterval,
     1,
   );
-  const maxTokens = sanitizeNumber(
-    item?.maxTokens?.N,
-    defaultMaxTokens,
-    1,
-    hardMaxTokens,
-  );
-  const currentTokens = sanitizeNumber(
-    item?.tokens?.N,
-    maxTokens,
+  const lastRefill = sanitizeNumber(
+    item?.lastRefill?.N,
+    currentTime,
     0,
-    maxTokens,
+    currentTime,
   );
+  const tokens = sanitizeNumber(item?.tokens?.N, maxTokens, 0, maxTokens);
 
-  const timeDelta = Math.max(0, currentTime - lastRefill);
-  if (timeDelta < 0) {
-    warn(`Negative time delta detected for client ${clientId}; clock skew?`);
+  const rawDelta = currentTime - lastRefill;
+
+  if (rawDelta < 0) {
+    warn(
+      `Clock skew detected: currentTime(${currentTime}) < lastRefill(${lastRefill})`,
+    );
   }
 
-  const refillAmount = Math.floor((refillRate * timeDelta) / refillInterval);
-  const potentialTokens = currentTokens + refillAmount;
+  const timeDelta = Math.max(0, rawDelta);
+
+  const refillAmount = Math.floor(
+    (refillRate * timeDelta) / (refillInterval * 1000),
+  );
+  const potentialTokens = tokens + refillAmount;
   const cappedTokens = Math.min(potentialTokens, maxTokens);
-  const newTokens = cappedTokens - 1;
+  const cappedTokensFloored = Math.floor(cappedTokens);
+
+  return {
+    tokens,
+    lastRefill,
+    refillRate,
+    refillInterval,
+    maxTokens,
+    currentTime,
+    timeDelta,
+    refillAmount,
+    potentialTokens,
+    cappedTokens,
+    cappedTokensFloored,
+  };
+}
+
+// Atomic Token Bucket Rate Limiter
+// Each request consumes 1 token from the bucket
+// If no tokens are available, the request is denied Tokens are refilled based on the elapsed time since the last refill
+// This implementation uses DynamoDB to store the token bucket state for each client atomically via read-then-conditional-write.
+async function applyRateLimit(ddbClient, table, clientId) {
+  const getParams = {
+    TableName: table,
+    Key: { clientId: { S: clientId } },
+    ProjectionExpression:
+      "tokens, lastRefill, refillRate, refillInterval, maxTokens",
+  };
+  let item;
+  try {
+    const getResult = await ddbClient.send(new GetItemCommand(getParams));
+    item = getResult.Item || {};
+  } catch (err) {
+    if (err.name === "ResourceNotFoundException") {
+      if (err.message.includes(table)) {
+        error(`DynamoDB table ${table} not found: `, err);
+        throw err;
+      } else {
+        item = {};
+      }
+    } else {
+      error("DynamoDB GetItem error:", err);
+      throw err;
+    }
+  }
+
+  item = sanitizeItem(item);
+
+  let rateLimitResult = {
+    allowed: item.cappedTokensFloored >= 1,
+    rateLimitRemaining: item.cappedTokensFloored, // Pre-consumption for denied
+    rateLimitLimit: item.maxTokens,
+  };
+
+  if (rateLimitResult.rateLimitRemaining < item.maxTokens) {
+    rateLimitResult.rateLimitReset = Math.ceil(
+      ((item.maxTokens - rateLimitResult.rateLimitRemaining) *
+        item.refillInterval) /
+        item.refillRate,
+    );
+  } else {
+    rateLimitResult.rateLimitReset = 0;
+  }
+
+  let newTokens = item.cappedTokensFloored - 1; // Post-consumption for allowed
 
   debug(`Calculated tokens for ${clientId}`, {
-    currentTokens,
-    refillAmount,
-    cappedTokens,
-    newTokens,
+    currentTokens: item.tokens,
+    refillAmount: item.refillAmount,
+    cappedTokens: item.cappedTokensFloored,
+    newTokens: rateLimitResult.allowed ? newTokens : "N/A",
   });
 
-  if (newTokens < 0) {
+  if (rateLimitResult.allowed) {
+    rateLimitResult.rateLimitRemaining = newTokens;
+    if (rateLimitResult.rateLimitRemaining < item.maxTokens) {
+      rateLimitResult.rateLimitReset = Math.ceil(
+        ((item.maxTokens - rateLimitResult.rateLimitRemaining) *
+          item.refillInterval) /
+          item.refillRate,
+      );
+    } else {
+      rateLimitResult.rateLimitReset = 0;
+    }
+  } else {
     debug(
-      `Rate limit check failed: Insufficient tokens after refill (potential: ${potentialTokens})`,
+      `Rate limit check failed: Insufficient tokens after refill (potential: ${item.potentialTokens})`,
     );
-    return { allowed: false, rateLimitRemaining: Math.floor(cappedTokens) };
+    return rateLimitResult;
   }
 
   const updateParams = {
@@ -126,31 +180,28 @@ async function applyRateLimit(ddbClient, table, clientId) {
       attribute_not_exists(lastRefill) OR lastRefill = :oldLastRefill
     `,
     ExpressionAttributeValues: {
-      ":newTokens": { N: Math.floor(newTokens).toString() },
-      ":currentTime": { N: currentTime.toString() },
-      ":refillRate": { N: refillRate.toString() },
-      ":refillInterval": { N: refillInterval.toString() },
-      ":maxTokens": { N: maxTokens.toString() },
-      ":oldLastRefill": { N: lastRefill.toString() },
+      ":newTokens": { N: newTokens.toString() },
+      ":currentTime": { N: item.currentTime.toString() },
+      ":refillRate": { N: item.refillRate.toString() },
+      ":refillInterval": { N: item.refillInterval.toString() },
+      ":maxTokens": { N: item.maxTokens.toString() },
+      ":oldLastRefill": { N: item.lastRefill.toString() },
     },
     ReturnValues: "UPDATED_NEW",
   };
 
-  const rateLimitRemaining = Math.floor(newTokens);
-
   try {
     const result = await ddbClient.send(new UpdateItemCommand(updateParams));
-    debug(
-      `Rate limit update succeeded for client ${clientId}`,
-      result.Attributes,
-    );
-    return { allowed: true, rateLimitRemaining: rateLimitRemaining };
+    debug(`Rate limit update succeeded for client ${clientId}`, result);
+    rateLimitResult.allowed = true;
+    return rateLimitResult;
   } catch (err) {
     if (err.name === "ConditionalCheckFailedException") {
       debug(
         "Conditional update failed (concurrent modification); denying to be safe",
       );
-      return { allowed: false, rateLimitRemaining: 0 };
+      rateLimitResult.allowed = false;
+      return rateLimitResult;
     }
     error("DynamoDB UpdateItem error:", err);
     throw err;
