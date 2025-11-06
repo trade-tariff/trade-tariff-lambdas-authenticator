@@ -80,9 +80,7 @@ function refute_header() {
 function assert_status() {
   local expected_status="$1"
   local actual_status
-
   actual_status=$(jq -r '.status' result.json)
-
   if [ "$actual_status" != "$expected_status" ]; then
     echo "Expected status $expected_status but got $actual_status"
     exit 1
@@ -92,9 +90,7 @@ function assert_status() {
 function assert_body() {
   local expected_body="$1"
   local actual_body
-
   actual_body=$(jq -r '.body' result.json)
-
   if [ "$actual_body" != "$expected_body" ]; then
     echo "Expected body '$expected_body' but got '$actual_body'"
     exit 1
@@ -103,30 +99,77 @@ function assert_body() {
 
 function main() {
   local function_name="viewer-request-${STAGE}-auth"
+  local failures=0
 
-  generate_event "authorised"
-  invoke_lambda "$function_name"
-  assert_header "x-client-id"
-  echo "✅ Authorised test passed."
+  # Trap to colorize error messages in red (for assertions)
+  trap 'echo -e "\033[31m$_\033[0m"' ERR
 
-  generate_event "unauthenticated"
-  invoke_lambda "$function_name"
-  refute_header "x-client-id"
-  assert_status 401
-  assert_body '{"errors":[{"status":"401","title":"Unauthorized","detail":"Authentication credentials were missing, incorrect or expired. Please sign up to the service to obtain valid credentials at https://hub.trade-tariff.service.gov.uk."}]}'
-  echo "✅ Unauthenticated test passed."
+  echo -e "\033[1mRunning Authorised test...\033[0m"
+  if (
+    set -o errexit -o nounset -o pipefail
+    generate_event "authorised"
+    invoke_lambda "$function_name"
+    assert_header "x-client-id"
+  ); then
+    echo -e "\033[32m✅ Authorised test passed.\033[0m"
+  else
+    echo -e "\033[31m❌ Authorised test failed.\033[0m"
+    ((failures++))
+  fi
 
-  generate_event "unauthenticated_forwarded"
-  invoke_lambda "$function_name"
-  assert_header "x-client-id" "unknown"
-  echo "✅ Unauthenticated forwarded test passed."
+  echo -e "\033[1mRunning Unauthenticated test...\033[0m"
+  if (
+    set -o errexit -o nounset -o pipefail
+    generate_event "unauthenticated"
+    invoke_lambda "$function_name"
+    refute_header "x-client-id"
+    assert_status 401
+    assert_body '{"errors":[{"status":"401","title":"Unauthorized","detail":"Authentication credentials were missing, incorrect or expired. Please sign up to the service to obtain valid credentials at https://hub.trade-tariff.service.gov.uk."}]}'
+  ); then
+    echo -e "\033[32m✅ Unauthenticated test passed.\033[0m"
+  else
+    echo -e "\033[31m❌ Unauthenticated test failed.\033[0m"
+    ((failures++))
+  fi
 
-  generate_event "unauthorised"
-  invoke_lambda "$function_name"
-  refute_header "x-client-id"
-  assert_status 403
-  assert_body '{"errors":[{"status":"403","title":"Forbidden","detail":"You do not have permission to access this resource. Request access by signing up to the service at https://hub.trade-tariff.service.gov.uk."}]}'
-  echo "✅ Unauthorised test passed."
+  echo -e "\033[1mRunning Unauthenticated Forwarded test...\033[0m"
+  if (
+    set -o errexit -o nounset -o pipefail
+    generate_event "unauthenticated_forwarded"
+    invoke_lambda "$function_name"
+    assert_header "x-client-id" "unknown"
+  ); then
+    echo -e "\033[32m✅ Unauthenticated Forwarded test passed.\033[0m"
+  else
+    echo -e "\033[31m❌ Unauthenticated Forwarded test failed.\033[0m"
+    ((failures++))
+  fi
+
+  echo -e "\033[1mRunning Unauthorised test...\033[0m"
+  if (
+    set -o errexit -o nounset -o pipefail
+    generate_event "unauthorised"
+    invoke_lambda "$function_name"
+    refute_header "x-client-id"
+    assert_status 403
+    assert_body '{"errors":[{"status":"403","title":"Forbidden","detail":"You do not have permission to access this resource. Request access by signing up to the service at https://hub.trade-tariff.service.gov.uk."}]}'
+  ); then
+    echo -e "\033[32m✅ Unauthorised test passed.\033[0m"
+  else
+    echo -e "\033[31m❌ Unauthorised test failed.\033[0m"
+    ((failures++))
+  fi
+
+  # Summary
+  echo -e "\n\033[1mTest Summary:\033[0m"
+  local total=4
+  local passes=$((total - failures))
+  echo -e "Passed: \033[32m$passes/$total\033[0m"
+  echo -e "Failed: \033[31m$failures/$total\033[0m"
+
+  if [ $failures -gt 0 ]; then
+    exit 1
+  fi
 }
 
 main
