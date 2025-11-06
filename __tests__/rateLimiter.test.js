@@ -27,6 +27,7 @@ describe("applyRateLimit", () => {
       rateLimitRemaining: 749,
       rateLimitLimit: 750,
       rateLimitReset: 1,
+      collision: false,
     });
     expect(mockSend).toHaveBeenCalledTimes(2);
     expect(mockSend.mock.calls[0][0]).toBeInstanceOf(GetItemCommand);
@@ -60,6 +61,7 @@ describe("applyRateLimit", () => {
       rateLimitRemaining: 0,
       rateLimitLimit: 750,
       rateLimitReset: 60,
+      collision: false,
     });
     expect(mockSend).toHaveBeenCalledTimes(1); // No update attempted
   });
@@ -86,6 +88,7 @@ describe("applyRateLimit", () => {
       rateLimitRemaining: 374,
       rateLimitLimit: 750,
       rateLimitReset: 31,
+      collision: false,
     });
     const updateParams = mockSend.mock.calls[1][0].input;
     expect(updateParams.ExpressionAttributeValues[":newTokens"].N).toBe("374"); // floor((0 + 375) -1)
@@ -111,6 +114,7 @@ describe("applyRateLimit", () => {
       rateLimitRemaining: 749,
       rateLimitLimit: 750,
       rateLimitReset: 1,
+      collision: true,
     });
     expect(mockSend).toHaveBeenCalledTimes(2);
   });
@@ -133,6 +137,7 @@ describe("applyRateLimit", () => {
       rateLimitRemaining: 2499,
       rateLimitLimit: 2500,
       rateLimitReset: 1,
+      collision: false,
     });
     const updateParams = mockSend.mock.calls[1][0].input;
     expect(updateParams.ExpressionAttributeValues[":newTokens"].N).toBe("2499");
@@ -161,6 +166,7 @@ describe("applyRateLimit", () => {
       rateLimitRemaining: 374,
       rateLimitLimit: 750,
       rateLimitReset: 31,
+      collision: false,
     }); // Uses default 750 for refill
     const updateParams = mockSend.mock.calls[1][0].input;
     expect(updateParams.ExpressionAttributeValues[":refillRate"].N).toBe("750"); // Persisted default
@@ -186,6 +192,7 @@ describe("applyRateLimit", () => {
       rateLimitRemaining: 0,
       rateLimitLimit: 750,
       rateLimitReset: 60,
+      collision: false,
     }); // Clamped to 0, denied
     expect(mockSend).toHaveBeenCalledTimes(1);
   });
@@ -212,6 +219,7 @@ describe("applyRateLimit", () => {
       rateLimitRemaining: 0,
       rateLimitLimit: 750,
       rateLimitReset: 45000,
+      collision: false,
     });
     const updateParams = mockSend.mock.calls[1];
     expect(mockSend).toHaveBeenCalledTimes(1);
@@ -239,6 +247,7 @@ describe("applyRateLimit", () => {
       rateLimitRemaining: 749,
       rateLimitLimit: 750,
       rateLimitReset: 1,
+      collision: false,
     });
   });
 });
