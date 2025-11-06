@@ -16,6 +16,8 @@ provider:
   region: us-east-1
   deploymentBucket:
     name: ${env:DEPLOYMENT_BUCKET}
+  iam:
+    role: ViewerRequestAuthExecutionRole
 
 package:
   patterns:
@@ -30,12 +32,8 @@ package:
 functions:
   auth:
     handler: src/index.request_handler
-    iam:
-      role: ViewerRequestAuthExecutionRole
   response:
     handler: src/index.response_handler
-    iam:
-      role: ViewerRequestResponseExecutionRole
 
 resources:
   Resources:
@@ -75,18 +73,3 @@ resources:
                     - dynamodb:UpdateItem
                     - dynamodb:PutItem
                   Resource: arn:aws:dynamodb:eu-west-2:*:table/client-rate-limits
-    ViewerRequestResponseExecutionRole:
-      Type: AWS::IAM::Role
-      Properties:
-        RoleName: ViewerRequestResponseExecutionRole
-        AssumeRolePolicyDocument:
-          Version: "2012-10-17"
-          Statement:
-            - Effect: Allow
-              Principal:
-                Service:
-                  - lambda.amazonaws.com
-                  - edgelambda.amazonaws.com
-              Action: sts:AssumeRole
-        ManagedPolicyArns:
-          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
