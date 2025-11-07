@@ -1,6 +1,8 @@
 const { CognitoJwtVerifier } = require("aws-jwt-verify");
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
-const { applyRateLimitWithRetry } = require("./rateLimiter");
+const {
+  applyRateLimitHybridMemoryDynamo,
+} = require("./rateLimiterHybridMemoryDynamo");
 const { error } = require("./logger");
 const { jwtDecode } = require("jwt-decode");
 
@@ -127,7 +129,11 @@ module.exports.request_handler = async (event, _context, callback) => {
       rateLimitLimit,
       rateLimitReset,
       collision,
-    } = await applyRateLimitWithRetry(ddbClient, DYNAMODB_TABLE, clientId);
+    } = await applyRateLimitHybridMemoryDynamo(
+      ddbClient,
+      DYNAMODB_TABLE,
+      clientId,
+    );
 
     const rateLimitHeaders = {
       "x-ratelimit-limit": [

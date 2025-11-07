@@ -52,7 +52,7 @@ async function runTests() {
   for (let concurrency = 1; concurrency <= 10; concurrency++) {
     console.log(`Running with concurrency level: ${concurrency}`);
     const times = [];
-    let success_collisions = 0;
+    let success = 0;
     let rate_limit_collisions = 0;
     let rate_limit_non_collisions = 0;
     let other_errors = 0;
@@ -74,21 +74,19 @@ async function runTests() {
             rate_limit_non_collisions++;
           }
         } else {
-          if (result.collision) {
-            success_collisions++;
-          }
+          success++;
         }
       });
     }
     const avgTime = times.reduce((a, b) => a + b, 0) / times.length || 0;
-    const successCollisionPercentage = (success_collisions / TOTAL_REQUESTS) * 100;
+    const successPercentage = (success / TOTAL_REQUESTS) * 100;
     const rateLimitCollisionPercentage = (rate_limit_collisions / TOTAL_REQUESTS) * 100;
     const rateLimitNonCollisionPercentage = (rate_limit_non_collisions / TOTAL_REQUESTS) * 100;
     const otherErrorPercentage = (other_errors / TOTAL_REQUESTS) * 100;
     results.push({
       concurrency,
       avgTime,
-      successCollisionPercentage,
+      successPercentage,
       rateLimitCollisionPercentage,
       rateLimitNonCollisionPercentage,
       otherErrorPercentage
@@ -100,8 +98,8 @@ async function runTests() {
 function printTable(results) {
   const tableData = results.map(r => [
     r.concurrency,
-    `${r.avgTime.toFixed(4)} s`,
-    `${r.successCollisionPercentage.toFixed(2)}%`,
+    `${(r.avgTime * 1000).toFixed(2)} ms`,
+    `${r.successPercentage.toFixed(2)}%`,
     `${r.rateLimitCollisionPercentage.toFixed(2)}%`,
     `${r.rateLimitNonCollisionPercentage.toFixed(2)}%`,
     `${r.otherErrorPercentage.toFixed(2)}%`
@@ -119,7 +117,7 @@ function printTable(results) {
   console.log(table([[
     'Concurrency',
     'Avg Time per Request',
-    'Success Collision %',
+    'Success %',
     '429 Collision %',
     '429 Non-Collision %',
     'Other Error %'
