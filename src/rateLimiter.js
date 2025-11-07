@@ -186,4 +186,31 @@ async function applyRateLimit(ddbClient, table, clientId) {
   }
 }
 
-module.exports = { applyRateLimit };
+async function applyRateLimitWithRetry(
+  ddbClient,
+  table,
+  clientId,
+  maxRetries = 3,
+  baseBackoffMs = 50,
+) {
+  let result;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    result = await applyRateLimit(ddbClient, table, clientId);
+
+    if (!result.collision) {
+      return result;
+    }
+
+    // Exponential backoff with jitter
+    if (attempt < maxRetries - 1) {
+      const backoff = Math.pow(2, attempt) * baseBackoffMs;
+      const jitter = Math.random() * 50;
+      await new Promise((resolve) => setTimeout(resolve, backoff + jitter));
+    }
+  }
+
+  // After max retries just return the last result
+  return result;
+}
+module.exports = { applyRateLimit, applyRateLimitWithRetry };
