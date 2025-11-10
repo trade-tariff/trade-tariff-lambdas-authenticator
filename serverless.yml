@@ -20,20 +20,28 @@ provider:
     role: ViewerRequestAuthExecutionRole
 
 package:
-  patterns:
-    - "!./**"
-    - ./node_modules/**
-    - "!./node_modules/**/**/esm/**"
-    - "!./node_modules/**/README.md"
-    - "!./node_modules/**/LICENSE"
-    - src/**
-    - package.json
+  individually: true
 
 functions:
   auth:
-    handler: src/index.request_handler
+    handler: src/requestHandler.handler
+    package:
+      patterns:
+        - "!./**"
+        - ./node_modules/**
+        - "!./node_modules/**/**/esm/**"
+        - "!./node_modules/**/README.md"
+        - "!./node_modules/**/LICENSE"
+        - src/**
+        - "!src/responseHandler.js"
+        - package.json
   response:
-    handler: src/index.response_handler
+    handler: src/responseHandler.handler
+    package:
+      patterns:
+        - "!**"
+        - "!./**"
+        - "src/responseHandler.js"
 
 resources:
   Resources:

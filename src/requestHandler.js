@@ -1,13 +1,12 @@
 const { CognitoJwtVerifier } = require("aws-jwt-verify");
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
-const {
-  applyRateLimitHybridMemoryDynamo,
-} = require("./rateLimiterHybridMemoryDynamo");
+
+const { applyRateLimit } = require("./rateLimiterHybridMemoryDynamo");
 const { error } = require("./logger");
 const { jwtDecode } = require("jwt-decode");
 
 const DYNAMODB_TABLE = "client-rate-limits";
-const USER_POOL_ID = "eu-west-2_h8JF71jvX";
+const USER_POOL_ID = "eu-west-2_eYCVlIQL0";
 const SCOPES = {
   "tariff/read": {
     excludedPaths: ["green_lanes", "user", "admin", "notifications"],
@@ -80,7 +79,7 @@ function authorised(scopes, path) {
   return false;
 }
 
-module.exports.request_handler = async (event, _context, callback) => {
+async function handler(event, _context, callback) {
   const request = event.Records[0].cf.request;
   const headers = request.headers;
   const authHeader = headers["authorization"];
@@ -129,11 +128,7 @@ module.exports.request_handler = async (event, _context, callback) => {
       rateLimitLimit,
       rateLimitReset,
       collision,
-    } = await applyRateLimitHybridMemoryDynamo(
-      ddbClient,
-      DYNAMODB_TABLE,
-      clientId,
-    );
+    } = await applyRateLimit(ddbClient, DYNAMODB_TABLE, clientId);
 
     const rateLimitHeaders = {
       "x-ratelimit-limit": [
@@ -181,17 +176,6 @@ module.exports.request_handler = async (event, _context, callback) => {
       body: ERRORS.unauthorized,
     });
   }
-};
+}
 
-module.exports.response_handler = async (event) => {
-  const { request, response } = event.Records[0].cf;
-
-  response.headers["x-ratelimit-limit"] =
-    request.headers["x-ratelimit-limit"] || [];
-  response.headers["x-ratelimit-remaining"] =
-    request.headers["x-ratelimit-remaining"] || [];
-  response.headers["x-ratelimit-reset"] =
-    request.headers["x-ratelimit-reset"] || [];
-
-  return response;
-};
+module.exports.handler = handler;

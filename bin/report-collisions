@@ -9,6 +9,8 @@ const token = execSync('.github/bin/get-access-token').toString().trim();
 
 const URL = 'https://dev.trade-tariff.service.gov.uk/uk/api/v2/headings/0104';
 const HEADERS = { Authorization: token };
+const MIN_CONCURRENCY = 10;
+const MAX_CONCURRENCY = 10;
 
 const TOTAL_REQUESTS = 100; // Total requests per concurrency level; adjust as needed
 
@@ -49,7 +51,7 @@ async function makeRequest() {
 
 async function runTests() {
   const results = [];
-  for (let concurrency = 1; concurrency <= 10; concurrency++) {
+  for (let concurrency = MIN_CONCURRENCY; concurrency <= MAX_CONCURRENCY; concurrency++) {
     console.log(`Running with concurrency level: ${concurrency}`);
     const times = [];
     let success = 0;

@@ -86,7 +86,7 @@ function sanitizeItem(item) {
 // Uses in-memory cache for approximate, fast checks/updates.
 // Periodically/asynchronously syncs to DynamoDB for eventual consistency.
 // Note: In-memory is per-Lambda invocation; for multi-instance consistency, use a shared cache like Redis.
-async function applyRateLimitHybridMemoryDynamo(ddbClient, table, clientId) {
+async function applyRateLimit(ddbClient, table, clientId) {
   const currentTime = Date.now();
   let cachedItem = memoryCache.get(clientId);
 
@@ -193,7 +193,7 @@ async function applyRateLimitHybridMemoryDynamo(ddbClient, table, clientId) {
       ":refillInterval": { N: cachedItem.refillInterval.toString() },
       ":maxTokens": { N: cachedItem.maxTokens.toString() },
     },
-    ReturnValues: "NONE", // No need for return values
+    ReturnValues: "NONE",
   };
 
   ddbClient.send(new UpdateItemCommand(updateParams)).catch((err) => {
@@ -204,4 +204,4 @@ async function applyRateLimitHybridMemoryDynamo(ddbClient, table, clientId) {
   return rateLimitResult;
 }
 
-module.exports = { applyRateLimitHybridMemoryDynamo };
+module.exports = { applyRateLimit };

@@ -22,7 +22,7 @@ update_user_pool_id() {
   local stage="$1"
   local user_pool_id="${USER_POOL_IDS[$stage]}"
 
-  sed -i 's/const USER_POOL_ID = ".*";/const USER_POOL_ID = "'"$user_pool_id"'";/' src/index.js
+  sed -i 's/const USER_POOL_ID = ".*";/const USER_POOL_ID = "'"$user_pool_id"'";/' src/requestHandler.js
 }
 
 update_log_level() {
