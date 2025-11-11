@@ -7,6 +7,12 @@ const { error } = require("./logger");
 // In-memory cache: Map<clientId, {tokens: number, lastRefill: number, ...}>
 const memoryCache = new Map(); // Local to Lambda invocation; approximate and non-persistent
 
+const hardMaxTokens = 2500; // Absolute maximum tokens to prevent abuse
+const hardMaxRefillRate = 2500; // Absolute maximum refill rate to prevent abuse
+const defaultRefillRate = 300; // Tokens per interval
+const defaultInterval = 60; // Seconds
+const defaultMaxTokens = 500; // Burst allowance
+
 function sanitizeNumber(
   value,
   defaultValue,
@@ -31,11 +37,6 @@ function sanitizeNumber(
 // Returns a sanitized item object with guaranteed valid numeric fields
 function sanitizeItem(item) {
   const currentTime = Date.now(); // In milliseconds
-  const hardMaxTokens = 2500; // Absolute maximum tokens to prevent abuse
-  const hardMaxRefillRate = 2500; // Absolute maximum refill rate to prevent abuse
-  const defaultRefillRate = 750; // Tokens per interval
-  const defaultInterval = 60; // Seconds
-  const defaultMaxTokens = 750; // Burst allowance
   const maxTokens = sanitizeNumber(
     item?.maxTokens?.N,
     defaultMaxTokens,

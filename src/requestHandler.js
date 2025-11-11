@@ -45,6 +45,16 @@ const ERRORS = {
       },
     ],
   }),
+  rateLimitExceeded: JSON.stringify({
+    errors: [
+      {
+        status: "429",
+        title: "Too Many Requests",
+        detail:
+          "You have exceeded your rate limit. Please try your request again later.",
+      },
+    ],
+  }),
 };
 
 // NOTE: All of our viewer requests originate from CloudFront in the eu-west-2 region so we create the DynamoDB client in that region.
@@ -152,7 +162,7 @@ async function handler(event, _context, callback) {
       return callback(null, {
         status: "429",
         statusDescription: "Too Many Requests",
-        body: "Rate limit exceeded",
+        body: ERRORS.rateLimitExceeded,
         headers: rateLimitHeaders,
       });
     }
