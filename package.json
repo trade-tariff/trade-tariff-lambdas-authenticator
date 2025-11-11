@@ -1,0 +1,21 @@
+{
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.921.0",
+    "aws-jwt-verify": "^5.1.1",
+    "jwt-decode": "^4.0.0"
+  },
+  "description": "",
+  "devDependencies": {
+    "@eslint/js": "^9.38.0",
+    "axios": "^1.13.2",
+    "eslint": "^9.38.0",
+    "globals": "^16.4.0",
+    "jest": "^30.2.0",
+    "table": "^6.9.0"
+  },
+  "name": "auth",
+  "scripts": {
+    "test": "jest"
+  },
+  "version": "1.0.0"
+}

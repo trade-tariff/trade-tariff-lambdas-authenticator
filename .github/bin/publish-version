@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+[[ "$TRACE" ]] && set -o xtrace
+set -o errexit
+set -o nounset
+set -o pipefail
+set -o noclobber
+
+publish_new_version() {
+  local function_name="$1"
+  local description="$2"
+
+  aws lambda publish-version --no-paginate --function-name "$function_name" --description "$description" | jq -r '"New Version Published\n    Function: " + .FunctionName + "\n    Version: " + .Version'
+}
+
+main() {
+  if [ $# -lt 1 ]; then
+    echo "Usage: $0 <stage>"
+    exit 1
+  fi
+  export AWS_REGION="us-east-1"
+
+  STAGE="$1"
+  DESCRIPTION="Published on $(date +"%Y-%m-%dT%H:%M:%SZ")"
+
+  publish_new_version "viewer-request-$STAGE-auth" "$DESCRIPTION"
+  publish_new_version "viewer-request-$STAGE-response" "$DESCRIPTION"
+}
+
+main "$@"

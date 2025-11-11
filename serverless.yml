@@ -1,0 +1,83 @@
+service: viewer-request
+frameworkVersion: "3"
+
+custom:
+  logRetentionInDays:
+    development: 7
+    staging: 14
+    production: 30
+
+provider:
+  name: aws
+  runtime: nodejs22.x
+  stage: ${env:STAGE}
+  memorySize: 128
+  # NOTE: Must be us-east-1 for Viewer-Request lambda@edge replication
+  region: us-east-1
+  deploymentBucket:
+    name: ${env:DEPLOYMENT_BUCKET}
+  iam:
+    role: ViewerRequestAuthExecutionRole
+
+package:
+  individually: true
+
+functions:
+  auth:
+    handler: src/requestHandler.handler
+    package:
+      patterns:
+        - "!./**"
+        - ./node_modules/**
+        - "!./node_modules/**/**/esm/**"
+        - "!./node_modules/**/README.md"
+        - "!./node_modules/**/LICENSE"
+        - src/**
+        - "!src/responseHandler.js"
+        - package.json
+  response:
+    handler: src/responseHandler.handler
+    package:
+      patterns:
+        - "!**"
+        - "!./**"
+        - "src/responseHandler.js"
+
+resources:
+  Resources:
+    AuthLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${env:STAGE}-auth
+        RetentionInDays: ${self:custom.logRetentionInDays.${env:STAGE}, 14}
+    ResponseLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${env:STAGE}-response
+        RetentionInDays: ${self:custom.logRetentionInDays.${env:STAGE}, 14}
+    ViewerRequestAuthExecutionRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: ViewerRequestAuthExecutionRole
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+                  - edgelambda.amazonaws.com
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        Policies:
+          - PolicyName: ViewerRequestAuthExecutionRolePolicy
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - dynamodb:GetItem
+                    - dynamodb:UpdateItem
+                    - dynamodb:PutItem
+                  Resource: arn:aws:dynamodb:eu-west-2:*:table/client-rate-limits

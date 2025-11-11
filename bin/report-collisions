@@ -1,0 +1,135 @@
+#! /usr/bin/env node
+
+const { execSync } = require('child_process');
+const axios = require('axios');
+const { performance } = require('perf_hooks');
+const { table } = require('table');
+
+const token = execSync('.github/bin/get-access-token').toString().trim();
+
+const URL = 'https://dev.trade-tariff.service.gov.uk/uk/api/v2/headings/0104';
+const HEADERS = { Authorization: token };
+const MIN_CONCURRENCY = 1;
+const MAX_CONCURRENCY = 10;
+
+const TOTAL_REQUESTS = 1000; // Total requests per concurrency level; adjust as needed
+
+async function makeRequest() {
+  const startTime = performance.now();
+  try {
+    const response = await axios.head(URL, { headers: HEADERS });
+    const endTime = performance.now();
+    const collision = response.headers['x-ratelimit-collision']?.toLowerCase() === 'true';
+    return {
+      time: (endTime - startTime) / 1000, // in seconds
+      is_429: false,
+      collision: collision,
+      is_other_error: false
+    };
+  } catch (error) {
+    const endTime = performance.now();
+    const time = (endTime - startTime) / 1000;
+    if (error.response && error.response.status === 429) {
+      const collision = error.response.headers['x-ratelimit-collision']?.toLowerCase() === 'true';
+      return {
+        time,
+        is_429: true,
+        collision: collision,
+        is_other_error: false
+      };
+    } else {
+      console.error(`Error in request: ${error.message}`);
+      return {
+        time,
+        is_429: false,
+        collision: false,
+        is_other_error: true
+      };
+    }
+  }
+}
+
+async function runTests() {
+  const results = [];
+  for (let concurrency = MIN_CONCURRENCY; concurrency <= MAX_CONCURRENCY; concurrency++) {
+    console.log(`Running with concurrency level: ${concurrency}`);
+    const times = [];
+    let success = 0;
+    let rate_limit_collisions = 0;
+    let rate_limit_non_collisions = 0;
+    let other_errors = 0;
+    const chunks = Math.ceil(TOTAL_REQUESTS / concurrency);
+    for (let i = 0; i < chunks; i++) {
+      const promises = [];
+      for (let j = 0; j < concurrency && (i * concurrency + j) < TOTAL_REQUESTS; j++) {
+        promises.push(makeRequest());
+      }
+      const chunkResults = await Promise.all(promises);
+      chunkResults.forEach(result => {
+        times.push(result.time);
+        if (result.is_other_error) {
+          other_errors++;
+        } else if (result.is_429) {
+          if (result.collision) {
+            rate_limit_collisions++;
+          } else {
+            rate_limit_non_collisions++;
+          }
+        } else {
+          success++;
+        }
+      });
+    }
+    const avgTime = times.reduce((a, b) => a + b, 0) / times.length || 0;
+    const successPercentage = (success / TOTAL_REQUESTS) * 100;
+    const rateLimitCollisionPercentage = (rate_limit_collisions / TOTAL_REQUESTS) * 100;
+    const rateLimitNonCollisionPercentage = (rate_limit_non_collisions / TOTAL_REQUESTS) * 100;
+    const otherErrorPercentage = (other_errors / TOTAL_REQUESTS) * 100;
+    results.push({
+      concurrency,
+      avgTime,
+      successPercentage,
+      rateLimitCollisionPercentage,
+      rateLimitNonCollisionPercentage,
+      otherErrorPercentage
+    });
+  }
+  return results;
+}
+
+function printTable(results) {
+  const tableData = results.map(r => [
+    r.concurrency,
+    `${(r.avgTime * 1000).toFixed(2)} ms`,
+    `${r.successPercentage.toFixed(2)}%`,
+    `${r.rateLimitCollisionPercentage.toFixed(2)}%`,
+    `${r.rateLimitNonCollisionPercentage.toFixed(2)}%`,
+    `${r.otherErrorPercentage.toFixed(2)}%`
+  ]);
+  const config = {
+    columns: [
+      { alignment: 'left' },
+      { alignment: 'right' },
+      { alignment: 'right' },
+      { alignment: 'right' },
+      { alignment: 'right' },
+      { alignment: 'right' }
+    ]
+  };
+  console.log(table([[
+    'Concurrency',
+    'Avg Time per Request',
+    'Success %',
+    '429 Collision %',
+    '429 Non-Collision %',
+    'Other Error %'
+  ], ...tableData], config));
+}
+
+async function main() {
+  const results = await runTests();
+  console.log('\nABA Collision Results:');
+  printTable(results);
+}
+
+main().catch(console.error);
