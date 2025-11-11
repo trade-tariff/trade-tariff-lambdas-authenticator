@@ -30,7 +30,7 @@ function sanitizeNumber(
 // Handles missing or malformed data gracefully and caps values to prevent abuse
 // Returns a sanitized item object with guaranteed valid numeric fields
 function sanitizeItem(item) {
-  const currentTime = Date.now(); // In milliseconds (Using milliseconds reduces ABA problem likelihood https://grokipedia.com/page/ABA_problem)
+  const currentTime = Date.now(); // In milliseconds
   const hardMaxTokens = 2500; // Absolute maximum tokens to prevent abuse
   const hardMaxRefillRate = 2500; // Absolute maximum refill rate to prevent abuse
   const defaultRefillRate = 750; // Tokens per interval
@@ -85,7 +85,7 @@ function sanitizeItem(item) {
 // Hybrid In-Memory + DynamoDB Token Bucket Rate Limiter
 // Uses in-memory cache for approximate, fast checks/updates.
 // Periodically/asynchronously syncs to DynamoDB for eventual consistency.
-// Note: In-memory is per-Lambda invocation; for multi-instance consistency, use a shared cache like Redis.
+// Note: In-memory is per-Lambda invocation
 async function applyRateLimit(ddbClient, table, clientId) {
   const currentTime = Date.now();
   let cachedItem = memoryCache.get(clientId);
@@ -159,7 +159,7 @@ async function applyRateLimit(ddbClient, table, clientId) {
   // Consume token in-memory
   const newTokens = cachedItem.cappedTokensFloored - 1;
   cachedItem.tokens = newTokens;
-  cachedItem.lastRefill = currentTime; // Approximate refill time update
+  cachedItem.lastRefill = currentTime;
   cachedItem.lastAccess = currentTime;
   memoryCache.set(clientId, cachedItem);
 
@@ -180,12 +180,12 @@ async function applyRateLimit(ddbClient, table, clientId) {
     TableName: table,
     Key: { clientId: { S: clientId } },
     UpdateExpression: `
-      SET tokens = :newTokens,
-          lastRefill = :currentTime,
-          refillRate = :refillRate,
-          refillInterval = :refillInterval,
-          maxTokens = :maxTokens
-    `,
+      SET tokens = : newTokens,
+  lastRefill = : currentTime,
+    refillRate = : refillRate,
+      refillInterval = : refillInterval,
+        maxTokens = : maxTokens
+          `,
     ExpressionAttributeValues: {
       ":newTokens": { N: newTokens.toString() },
       ":currentTime": { N: currentTime.toString() },
@@ -204,4 +204,4 @@ async function applyRateLimit(ddbClient, table, clientId) {
   return rateLimitResult;
 }
 
-module.exports = { applyRateLimit };
+module.exports = { applyRateLimit, memoryCache };
