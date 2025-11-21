@@ -264,7 +264,9 @@ async function applyRateLimit(ddbClient, table, clientId) {
       }
     };
 
-    syncToDynamo().catch((err) => error("Sync to Dynamo failed:", err)); // Fire and forget
+    await syncToDynamo(0).catch((err) => {
+      error("Sync to Dynamo failed:", err);
+    });
   }
 
   return rateLimitResult;

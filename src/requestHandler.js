@@ -19,7 +19,7 @@ const rateLimitOptions = {
   "fully-atomic-dynamo": fullyAtomicRateLimit,
 };
 
-const RATE_LIMITER_CONFIGURABLE_VIA_HEADER = "false";
+const RATE_LIMITER_CONFIGURABLE_VIA_HEADER = false;
 const DYNAMODB_TABLE = "client-rate-limits";
 const USER_POOL_ID = "eu-west-2_eYCVlIQL0";
 const SCOPES = {
@@ -109,19 +109,21 @@ async function handler(event, _context, callback) {
   const headers = request.headers;
   const authHeader = headers["authorization"];
 
-  if (RATE_LIMITER_CONFIGURABLE_VIA_HEADER === "true") {
+  let applyRateLimit;
+
+  if (RATE_LIMITER_CONFIGURABLE_VIA_HEADER) {
     const rateLimiterHeader = headers["x-rate-limiter"];
     const rateLimiter = rateLimiterHeader[0].value;
     const rateLimiterType =
       rateLimiter && rateLimiter.length > 0
-        ? rateLimiter[0].value
+        ? rateLimiter
         : "reduced-atomicity-hybrid-v2";
 
-    const applyRateLimit =
+    applyRateLimit =
       rateLimitOptions[rateLimiterType] ||
       rateLimitOptions["reduced-atomicity-hybrid-v2"];
   } else {
-    const applyRateLimit = rateLimitOptions["reduced-atomicity-hybrid-v2"];
+    applyRateLimit = rateLimitOptions["reduced-atomicity-hybrid-v2"];
   }
 
   // If no Authorization header, forward as unauthenticated
