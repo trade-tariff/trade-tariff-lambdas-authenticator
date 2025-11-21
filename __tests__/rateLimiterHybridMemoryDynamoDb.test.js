@@ -8,6 +8,10 @@ const { GetItemCommand } = require("@aws-sdk/client-dynamodb");
 const mockSend = jest.fn();
 const mockDdbClient = { send: mockSend };
 
+jest.mock("../src/logger", () => ({
+  error: jest.fn(),
+}));
+
 describe("applyRateLimit", () => {
   beforeEach(() => {
     jest.resetAllMocks();

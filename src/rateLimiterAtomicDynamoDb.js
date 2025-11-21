@@ -1,3 +1,24 @@
+/**
+ * ===================================================================
+ * Fully Atomic DynamoDB Rate Limiter (Synchronous + Retries)
+ * ===================================================================
+ * Behaviour:
+ * - Every request performs a synchronous GetItem + conditional UpdateItem with retries on collision.
+ * - Guarantees strict global consistency – no overages even under extreme contention.
+ * - Uses optimistic concurrency on lastRefill/tokens to resolve races correctly.
+ *
+ * Pros:
+ * - 100% accurate token counts across all Lambda@Edge POPs
+ * - No possibility of over-issuing requests beyond configured limits
+ * - Simple to reason about and audit
+ *
+ * Cons:
+ * - Adds ~100–200 ms latency per request from round-trip to DynamoDB + retries
+ * - Higher p95/p99 latencies, especially from distant edge locations
+ * - Increased DynamoDB RCU/WCU consumption (one read + one write per request)
+ *
+ * Best for: Billing-critical limits, strict compliance requirements, or low-traffic APIs where latency is not the primary concern.
+ */
 const {
   GetItemCommand,
   UpdateItemCommand,

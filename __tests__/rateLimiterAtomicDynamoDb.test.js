@@ -1,6 +1,10 @@
 const { applyRateLimit } = require("../src/rateLimiterAtomicDynamoDb");
 const { GetItemCommand } = require("@aws-sdk/client-dynamodb");
 
+jest.mock("../src/logger", () => ({
+  error: jest.fn(),
+}));
+
 // Mock DynamoDB client
 const mockSend = jest.fn();
 const mockDdbClient = { send: mockSend };
