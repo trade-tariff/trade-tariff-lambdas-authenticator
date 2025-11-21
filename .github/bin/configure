@@ -32,6 +32,21 @@ update_log_level() {
   sed -i 's/const LOG_LEVEL = ".*";/const LOG_LEVEL = "'"$log_level"'";/' src/logger.js
 }
 
+# Enables configuring a different rate limiter in requests in development and staging environments
+update_rate_limiter_header_options() {
+  local stage="$1"
+  local setting
+
+  if [ "$stage" == "production" ]; then
+    setting=false
+  else
+    setting=true
+  fi
+
+
+  sed -i 's/const RATE_LIMITER_CONFIGURABLE_VIA_HEADER = .*;/const RATE_LIMITER_CONFIGURABLE_VIA_HEADER = '"$setting"';/' src/requestHandler.js
+}
+
 main() {
   if [ $# -lt 1 ]; then
     echo "Usage: $0 <stage>"

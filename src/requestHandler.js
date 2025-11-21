@@ -1,10 +1,25 @@
 const { CognitoJwtVerifier } = require("aws-jwt-verify");
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 
-const { applyRateLimit } = require("./rateLimiterHybridMemoryDynamo");
+const {
+  applyRateLimit: reducedAtomicityHybridLimitV1,
+} = require("./rateLimiterHybridMemoryDynamo");
+const {
+  applyRateLimit: reducedAtomicityHybridLimitV2,
+} = require("./rateLimiterHybridMemoryDynamoV2");
+const {
+  applyRateLimit: fullyAtomicRateLimit,
+} = require("./rateLimiterAtomicDynamoDb");
 const { error } = require("./logger");
 const { jwtDecode } = require("jwt-decode");
 
+const rateLimitOptions = {
+  "reduced-atomicity-hybrid-v1": reducedAtomicityHybridLimitV1,
+  "reduced-atomicity-hybrid-v2": reducedAtomicityHybridLimitV2,
+  "fully-atomic-dynamo": fullyAtomicRateLimit,
+};
+
+const RATE_LIMITER_CONFIGURABLE_VIA_HEADER = "true";
 const DYNAMODB_TABLE = "client-rate-limits";
 const USER_POOL_ID = "eu-west-2_eYCVlIQL0";
 const SCOPES = {
@@ -93,6 +108,21 @@ async function handler(event, _context, callback) {
   const request = event.Records[0].cf.request;
   const headers = request.headers;
   const authHeader = headers["authorization"];
+
+  if (RATE_LIMITER_CONFIGURABLE_VIA_HEADER === "true") {
+    const rateLimiterHeader = headers["x-rate-limiter"];
+    const rateLimiter = rateLimiterHeader[0].value;
+    const rateLimiterType =
+      rateLimiter && rateLimiter.length > 0
+        ? rateLimiter[0].value
+        : "reduced-atomicity-hybrid-v2";
+
+    const applyRateLimit =
+      rateLimitOptions[rateLimiterType] ||
+      rateLimitOptions["reduced-atomicity-hybrid-v2"];
+  } else {
+    const applyRateLimit = rateLimitOptions["reduced-atomicity-hybrid-v2"];
+  }
 
   // If no Authorization header, forward as unauthenticated
   if (!authHeader || authHeader.length === 0) {
