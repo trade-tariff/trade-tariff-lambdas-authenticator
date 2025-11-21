@@ -113,6 +113,12 @@ async function handler(event, _context, callback) {
 
   if (RATE_LIMITER_CONFIGURABLE_VIA_HEADER) {
     const rateLimiterHeader = headers["x-rate-limiter"];
+
+    if (!rateLimiterHeader || rateLimiterHeader.length === 0) {
+      applyRateLimit = rateLimitOptions["reduced-atomicity-hybrid-v2"];
+      return;
+    }
+
     const rateLimiter = rateLimiterHeader[0].value;
     const rateLimiterType =
       rateLimiter && rateLimiter.length > 0
