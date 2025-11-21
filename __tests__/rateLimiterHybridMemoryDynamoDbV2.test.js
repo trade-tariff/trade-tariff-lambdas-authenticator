@@ -3,6 +3,10 @@ const {
   memoryCache,
 } = require("../src/rateLimiterHybridMemoryDynamoV2");
 
+jest.mock("../src/logger", () => ({
+  error: jest.fn(),
+}));
+
 const { GetItemCommand } = require("@aws-sdk/client-dynamodb");
 // Mock DynamoDB client
 const mockSend = jest.fn();

@@ -18,33 +18,22 @@ declare -A LOG_LEVELS=(
   ["production"]="WARN"
 )
 
-update_user_pool_id() {
+update_config() {
   local stage="$1"
   local user_pool_id="${USER_POOL_IDS[$stage]}"
-
-  sed -i 's/const USER_POOL_ID = ".*";/const USER_POOL_ID = "'"$user_pool_id"'";/' src/requestHandler.js
-}
-
-update_log_level() {
-  local stage="$1"
   local log_level="${LOG_LEVELS[$stage]}"
-
-  sed -i 's/const LOG_LEVEL = ".*";/const LOG_LEVEL = "'"$log_level"'";/' src/logger.js
-}
-
-# Enables configuring a different rate limiter in requests in development and staging environments
-update_rate_limiter_header_options() {
-  local stage="$1"
   local setting
-
   if [ "$stage" == "production" ]; then
     setting=false
   else
     setting=true
   fi
 
-
-  sed -i 's/const RATE_LIMITER_CONFIGURABLE_VIA_HEADER = .*;/const RATE_LIMITER_CONFIGURABLE_VIA_HEADER = '"$setting"';/' src/requestHandler.js
+  jq --arg upid "$user_pool_id" \
+     --arg loglevel "$log_level" \
+     --argjson rlch "$setting" \
+     '.USER_POOL_ID = $upid | .LOG_LEVEL = $loglevel | .RATE_LIMITER_CONFIGURABLE_VIA_HEADER = $rlch' \
+     src/config.json > temp.json && mv temp.json src/config.json
 }
 
 main() {
@@ -53,10 +42,7 @@ main() {
     exit 1
   fi
   export AWS_REGION="us-east-1"
-
-  update_user_pool_id "$1"
-  update_log_level "$1"
-  update_rate_limiter_header_options "$1"
+  update_config "$1"
 }
 
 main "$@"

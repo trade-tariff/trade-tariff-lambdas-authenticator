@@ -1,6 +1,8 @@
 const { CognitoJwtVerifier } = require("aws-jwt-verify");
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 
+const config = require("./config.json");
+
 const {
   applyRateLimit: reducedAtomicityHybridLimitV1,
 } = require("./rateLimiterHybridMemoryDynamo");
@@ -19,25 +21,11 @@ const rateLimitOptions = {
   "fully-atomic-dynamo": fullyAtomicRateLimit,
 };
 
-const RATE_LIMITER_CONFIGURABLE_VIA_HEADER = false;
-const DYNAMODB_TABLE = "client-rate-limits";
-const USER_POOL_ID = "eu-west-2_eYCVlIQL0";
-const SCOPES = {
-  "tariff/read": {
-    excludedPaths: ["green_lanes", "user", "admin", "notifications"],
-    allowedPaths: ["/uk/api", "/xi/api"],
-  },
-  "tariff/write": {
-    excludedPaths: ["/xi/api/green_lanes"],
-    allowedPaths: ["/uk/api", "/xi/api", "/uk/admin", "/xi/admin"],
-  },
-  "fpo/read": {
-    allowedPaths: ["/fpo-code-search"],
-  },
-  "spimm/read": {
-    allowedPaths: ["/xi/api/green_lanes"],
-  },
-};
+const RATE_LIMITER_CONFIGURABLE_VIA_HEADER =
+  config.RATE_LIMITER_CONFIGURABLE_VIA_HEADER;
+const DYNAMODB_TABLE = config.DYNAMODB_TABLE;
+const USER_POOL_ID = config.COGNITO_USER_POOL_ID;
+const SCOPES = config.SCOPES;
 
 const ERRORS = {
   unauthorized: JSON.stringify({
@@ -146,11 +134,20 @@ async function handler(event, _context, callback) {
       body: ERRORS.unauthorized,
     });
   }
+
   const token = authValue.split(" ")[1];
 
   try {
     const decoded = jwtDecode(token);
     const clientId = decoded.client_id;
+
+    if (!clientId) {
+      return callback(null, {
+        status: "401",
+        statusDescription: "Unauthorized",
+        body: ERRORS.unauthorized,
+      });
+    }
 
     const verifier = CognitoJwtVerifier.create({
       userPoolId: USER_POOL_ID,

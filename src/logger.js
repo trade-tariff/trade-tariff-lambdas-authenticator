@@ -1,10 +1,13 @@
-const LOG_LEVEL = "DEBUG";
+const config = require("./config.json");
+
+const LOG_LEVEL = config.LOG_LEVEL || "DEBUG";
 
 const LEVELS = {
   ERROR: 0,
   WARN: 1,
   INFO: 2,
   DEBUG: 3,
+  DISABLED: 4,
 };
 
 function getLevelNum(level) {
@@ -14,6 +17,7 @@ function getLevelNum(level) {
 function log(level, message, data = {}) {
   const currentLevelNum = getLevelNum(LOG_LEVEL);
   const logLevelNum = getLevelNum(level);
+  if (currentLevelNum === LEVELS.DISABLED) return;
   if (logLevelNum > currentLevelNum) return;
   const entry = {
     timestamp: new Date().toISOString(),
