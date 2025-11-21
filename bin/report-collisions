@@ -6,18 +6,23 @@ const { performance } = require('perf_hooks');
 const { table } = require('table');
 
 const token = execSync('.github/bin/get-access-token').toString().trim();
-
 const URL = 'https://dev.trade-tariff.service.gov.uk/uk/api/v2/headings/0104';
-const HEADERS = { Authorization: token };
+const BASE_HEADERS = { Authorization: token };
+
 const MIN_CONCURRENCY = 1;
 const MAX_CONCURRENCY = 10;
-
 const TOTAL_REQUESTS = 1000; // Total requests per concurrency level; adjust as needed
 
-async function makeRequest() {
+const LIMITER_TYPES = [
+  'reduced-atomicity-hybrid-v1',
+  'reduced-atomicity-hybrid-v2',
+  'fully-atomic-dynamo'
+];
+
+async function makeRequest(headers) {
   const startTime = performance.now();
   try {
-    const response = await axios.head(URL, { headers: HEADERS });
+    const response = await axios.head(URL, { headers });
     const endTime = performance.now();
     const collision = response.headers['x-ratelimit-collision']?.toLowerCase() === 'true';
     return {
@@ -49,10 +54,14 @@ async function makeRequest() {
   }
 }
 
-async function runTests() {
+async function runTestsForLimiter(limiterType) {
+  const headers = {
+    ...BASE_HEADERS,
+    'x-rate-limiter': limiterType
+  };
   const results = [];
   for (let concurrency = MIN_CONCURRENCY; concurrency <= MAX_CONCURRENCY; concurrency++) {
-    console.log(`Running with concurrency level: ${concurrency}`);
+    console.log(`Running with concurrency level: ${concurrency} for limiter: ${limiterType}`);
     const times = [];
     let success = 0;
     let rate_limit_collisions = 0;
@@ -62,7 +71,7 @@ async function runTests() {
     for (let i = 0; i < chunks; i++) {
       const promises = [];
       for (let j = 0; j < concurrency && (i * concurrency + j) < TOTAL_REQUESTS; j++) {
-        promises.push(makeRequest());
+        promises.push(makeRequest(headers));
       }
       const chunkResults = await Promise.all(promises);
       chunkResults.forEach(result => {
@@ -86,6 +95,7 @@ async function runTests() {
     const rateLimitNonCollisionPercentage = (rate_limit_non_collisions / TOTAL_REQUESTS) * 100;
     const otherErrorPercentage = (other_errors / TOTAL_REQUESTS) * 100;
     results.push({
+      limiterType,
       concurrency,
       avgTime,
       successPercentage,
@@ -99,6 +109,7 @@ async function runTests() {
 
 function printTable(results) {
   const tableData = results.map(r => [
+    r.limiterType,
     r.concurrency,
     `${(r.avgTime * 1000).toFixed(2)} ms`,
     `${r.successPercentage.toFixed(2)}%`,
@@ -109,6 +120,7 @@ function printTable(results) {
   const config = {
     columns: [
       { alignment: 'left' },
+      { alignment: 'left' },
       { alignment: 'right' },
       { alignment: 'right' },
       { alignment: 'right' },
@@ -117,6 +129,7 @@ function printTable(results) {
     ]
   };
   console.log(table([[
+    'Limiter Type',
     'Concurrency',
     'Avg Time per Request',
     'Success %',
@@ -127,9 +140,14 @@ function printTable(results) {
 }
 
 async function main() {
-  const results = await runTests();
+  let allResults = [];
+  for (const limiterType of LIMITER_TYPES) {
+    console.log(`\nStarting tests for limiter: ${limiterType}`);
+    const limiterResults = await runTestsForLimiter(limiterType);
+    allResults = [...allResults, ...limiterResults];
+  }
   console.log('\nABA Collision Results:');
-  printTable(results);
+  printTable(allResults);
 }
 
 main().catch(console.error);
