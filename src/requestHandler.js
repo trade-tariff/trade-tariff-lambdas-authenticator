@@ -19,7 +19,7 @@ const rateLimitOptions = {
   "fully-atomic-dynamo": fullyAtomicRateLimit,
 };
 
-const RATE_LIMITER_CONFIGURABLE_VIA_HEADER = "true";
+const RATE_LIMITER_CONFIGURABLE_VIA_HEADER = "false";
 const DYNAMODB_TABLE = "client-rate-limits";
 const USER_POOL_ID = "eu-west-2_eYCVlIQL0";
 const SCOPES = {

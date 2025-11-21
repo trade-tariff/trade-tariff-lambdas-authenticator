@@ -1,3 +1,27 @@
+/**
+ * ===================================================================
+ * Hybrid Partially-Atomic Rate Limiter
+ * ===================================================================
+ * Behaviour:
+ * - Fast local in-memory calculation with immediate response (optimistic path).
+ * - Asynchronously persists state using conditional UpdateItem with limited retries.
+ * - On collision, refreshes local cache and re-attempts write in background.
+ * - Refills are persisted even on denied requests when time has passed.
+ *
+ * Pros:
+ * - Very low latency (~20–60 ms) while greatly reducing lost updates
+ * - Near-global consistency with only tiny windows for overages
+ * - Accumulates fractional tokens correctly across denied requests
+ * - Self-healing: collisions are detected and corrected automatically
+ * - Good balance of performance and accuracy for most production workloads
+ *
+ * Cons:
+ * - Still possible (but rare) brief overages/underages under extreme contention
+ * - Slightly higher complexity and DynamoDB usage than pure fire-and-forget
+ * - Requires monitoring of collision metric to tune retry/staleness settings
+ *
+ * Best for: Most real-world SaaS/multi-tenant APIs where you want API-Gateway-like correctness without paying the full latency or operational cost of moving to API Gateway.
+ */
 const {
   GetItemCommand,
   UpdateItemCommand,
