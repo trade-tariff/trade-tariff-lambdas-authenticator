@@ -183,6 +183,7 @@ async function applyRateLimit(ddbClient, table, clientId) {
   if (isConsume) {
     cachedItem.tokens = newTokens;
     cachedItem.lastAccess = currentTime;
+    cachedItem.lastRefill = currentTime;
     memoryCache.set(clientId, cachedItem);
     rateLimitResult.rateLimitRemaining = Math.floor(newTokens);
     if (rateLimitResult.rateLimitRemaining < cachedItem.maxTokens) {

@@ -3,10 +3,7 @@ const {
   memoryCache,
 } = require("../src/rateLimiterHybridMemoryDynamoV2");
 
-const {
-  GetItemCommand,
-  UpdateItemCommand,
-} = require("@aws-sdk/client-dynamodb");
+const { GetItemCommand } = require("@aws-sdk/client-dynamodb");
 // Mock DynamoDB client
 const mockSend = jest.fn();
 const mockDdbClient = { send: mockSend };
