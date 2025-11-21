@@ -230,14 +230,27 @@ describe("requestHandler", () => {
       "client-rate-limits",
       "test-client",
     );
-    // expect(mockCallback).toHaveBeenCalledWith(null, expect.objectContaining({
-    //   headers: expect.objectContaining({
-    //     'x-ratelimit-limit': [{ key: 'X-RateLimit-Limit', value: '500' }],
-    //     'x-ratelimit-remaining': [{ key: 'X-RateLimit-Remaining', value: '499' }],
-    //     'x-ratelimit-reset': [{ key: 'X-RateLimit-Reset', value: '1' }],
-    //     'x-client-id': [{ key: 'X-Client-Id', value: 'test-client' }],
-    //   }),
-    // }));
+    expect(mockCallback).toHaveBeenCalledWith(
+      null,
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "x-ratelimit-limit": [{ key: "X-RateLimit-Limit", value: "500" }],
+          "x-ratelimit-remaining": [
+            { key: "X-RateLimit-Remaining", value: "499" },
+          ],
+          "x-ratelimit-reset": [{ key: "X-RateLimit-Reset", value: "1" }],
+          "x-client-id": [{ key: "X-Client-Id", value: "test-client" }],
+        }),
+      }),
+    );
+    expect(CognitoJwtVerifier.create().verify).toHaveBeenCalledWith("token");
+
+    const call = CognitoJwtVerifier.create.mock.calls.length - 2;
+    expect(CognitoJwtVerifier.create.mock.calls[call][0]).toEqual({
+      userPoolId: "eu-west-2_eYCVlIQL0",
+      tokenUse: "access",
+      clientId: "test-client",
+    });
   });
 
   // Scenario 6: Valid, authorized, rate limit denied → 429 with headers

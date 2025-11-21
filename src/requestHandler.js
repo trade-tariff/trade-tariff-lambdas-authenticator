@@ -24,7 +24,7 @@ const rateLimitOptions = {
 const RATE_LIMITER_CONFIGURABLE_VIA_HEADER =
   config.RATE_LIMITER_CONFIGURABLE_VIA_HEADER;
 const DYNAMODB_TABLE = config.DYNAMODB_TABLE;
-const USER_POOL_ID = config.COGNITO_USER_POOL_ID;
+const USER_POOL_ID = config.USER_POOL_ID;
 const SCOPES = config.SCOPES;
 
 const ERRORS = {
@@ -101,20 +101,11 @@ async function handler(event, _context, callback) {
 
   if (RATE_LIMITER_CONFIGURABLE_VIA_HEADER) {
     const rateLimiterHeader = headers["x-rate-limiter"];
-
-    if (!rateLimiterHeader || rateLimiterHeader.length === 0) {
-      applyRateLimit = rateLimitOptions["reduced-atomicity-hybrid-v2"];
-      return;
-    }
-
-    const rateLimiter = rateLimiterHeader[0].value;
-    const rateLimiterType =
-      rateLimiter && rateLimiter.length > 0
-        ? rateLimiter
-        : "reduced-atomicity-hybrid-v2";
+    let rateLimiter =
+      rateLimiterHeader?.[0]?.value || "reduced-atomicity-hybrid-v2";
 
     applyRateLimit =
-      rateLimitOptions[rateLimiterType] ||
+      rateLimitOptions[rateLimiter] ??
       rateLimitOptions["reduced-atomicity-hybrid-v2"];
   } else {
     applyRateLimit = rateLimitOptions["reduced-atomicity-hybrid-v2"];

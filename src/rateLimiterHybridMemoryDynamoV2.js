@@ -36,6 +36,18 @@ const defaultRefillRate = 300; // Tokens per interval
 const defaultInterval = 60; // Seconds
 const defaultMaxTokens = 500; // Burst allowance
 
+function calculateRateLimitReset(
+  remaining,
+  maxTokens,
+  refillInterval,
+  refillRate,
+) {
+  if (remaining < maxTokens) {
+    return Math.ceil(((maxTokens - remaining) * refillInterval) / refillRate);
+  }
+  return 0;
+}
+
 function sanitizeNumber(
   value,
   defaultValue,
@@ -166,10 +178,11 @@ async function applyRateLimit(ddbClient, table, clientId) {
   };
 
   if (rateLimitResult.rateLimitRemaining < cachedItem.maxTokens) {
-    rateLimitResult.rateLimitReset = Math.ceil(
-      ((cachedItem.maxTokens - rateLimitResult.rateLimitRemaining) *
-        cachedItem.refillInterval) /
-        cachedItem.refillRate,
+    rateLimitResult.rateLimitReset = calculateRateLimitReset(
+      rateLimitResult.rateLimitRemaining,
+      cachedItem.maxTokens,
+      cachedItem.refillInterval,
+      cachedItem.refillRate,
     );
   } else {
     rateLimitResult.rateLimitReset = 0;
@@ -187,10 +200,11 @@ async function applyRateLimit(ddbClient, table, clientId) {
     memoryCache.set(clientId, cachedItem);
     rateLimitResult.rateLimitRemaining = Math.floor(newTokens);
     if (rateLimitResult.rateLimitRemaining < cachedItem.maxTokens) {
-      rateLimitResult.rateLimitReset = Math.ceil(
-        ((cachedItem.maxTokens - rateLimitResult.rateLimitRemaining) *
-          cachedItem.refillInterval) /
-          cachedItem.refillRate,
+      rateLimitResult.rateLimitReset = calculateRateLimitReset(
+        rateLimitResult.rateLimitRemaining,
+        cachedItem.maxTokens,
+        cachedItem.refillInterval,
+        cachedItem.refillRate,
       );
     } else {
       rateLimitResult.rateLimitReset = 0;
@@ -200,7 +214,7 @@ async function applyRateLimit(ddbClient, table, clientId) {
   // Asynchronously sync to DynamoDB if needed (non-blocking, with limited retries on collision)
   if (timeDelta > 0 || isConsume) {
     // Sync if refilled or consumed
-    const syncToDynamo = async (retries = 2) => {
+    const syncToDynamo = async (retries = 0) => {
       currentTime = Date.now(); // Refresh time for accuracy in retries
       timeDelta = Math.max(0, currentTime - cachedItem.lastRefill);
       refillAmount =
@@ -265,7 +279,7 @@ async function applyRateLimit(ddbClient, table, clientId) {
       }
     };
 
-    await syncToDynamo(0).catch((err) => {
+    await syncToDynamo().catch((err) => {
       error("Sync to Dynamo failed:", err);
     });
   }
