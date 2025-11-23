@@ -4,150 +4,207 @@ const { execSync } = require('child_process');
 const axios = require('axios');
 const { performance } = require('perf_hooks');
 const { table } = require('table');
+const { v4: uuidv4 } = require('uuid');
 
-const token = execSync('.github/bin/get-access-token').toString().trim();
-const URL = 'https://dev.trade-tariff.service.gov.uk/uk/api/v2/headings/0104';
-const BASE_HEADERS = { Authorization: token };
+(async () => {
+  const { default: ora } = await import('ora');
+  const { default: chalk } = await import('chalk');
+  const config = {
+    URL: 'https://dev.trade-tariff.service.gov.uk/uk/api/v2/headings/0104',
+    TOTAL_REQUESTS_PER_CONCURRENCY: 100,
+    MIN_CONCURRENCY: 1,
+    MAX_CONCURRENCY: 10,
+    REFILL_WAIT_SECONDS: 130,
+    LIMITER_TYPES: [
+      { name: 'Hybrid V2', headerValue: 'reduced-atomicity-hybrid-v2' },
+      { name: 'Hybrid V1', headerValue: 'reduced-atomicity-hybrid-v1' },
+      // { name: 'Atomic', headerValue: 'fully-atomic-dynamo' },
+    ],
+  };
 
-const MIN_CONCURRENCY = 1;
-const MAX_CONCURRENCY = 10;
-const TOTAL_REQUESTS = 1000; // Total requests per concurrency level; adjust as needed
+  async function main() {
+    console.log(chalk.bold.yellow('Starting Rate Limiter Performance & Collision Test'));
+    const runId = uuidv4().split('-')[0];
+    console.log(chalk.gray(`   Test Run ID: ${runId}`));
 
-const LIMITER_TYPES = [
-  'reduced-atomicity-hybrid-v1',
-  'reduced-atomicity-hybrid-v2',
-  'fully-atomic-dynamo'
-];
+    const token = await getAuthToken();
+    const baseHeaders = { Authorization: token, 'x-client-id': `validation-run-${runId}` };
 
-async function makeRequest(headers) {
-  const startTime = performance.now();
-  try {
-    const response = await axios.head(URL, { headers });
-    const endTime = performance.now();
-    const collision = response.headers['x-ratelimit-collision']?.toLowerCase() === 'true';
-    return {
-      time: (endTime - startTime) / 1000, // in seconds
-      is_429: false,
-      collision: collision,
-      is_other_error: false
-    };
-  } catch (error) {
-    const endTime = performance.now();
-    const time = (endTime - startTime) / 1000;
-    if (error.response && error.response.status === 429) {
-      const collision = error.response.headers['x-ratelimit-collision']?.toLowerCase() === 'true';
-      return {
-        time,
-        is_429: true,
-        collision: collision,
-        is_other_error: false
-      };
-    } else {
-      console.error(`Error in request: ${error.message}`);
-      return {
-        time,
-        is_429: false,
-        collision: false,
-        is_other_error: true
-      };
+    await performSanityCheck(baseHeaders);
+
+    const allResults = [];
+    const allErrorSamples = [];
+    for (const [index, limiter] of config.LIMITER_TYPES.entries()) {
+      if (index > 0) {
+        await waitForRefill();
+      }
+      const { results: limiterResults, errorSamples } = await runTestsForLimiter(limiter, baseHeaders);
+      allResults.push(...limiterResults);
+      allErrorSamples.push(...errorSamples);
+    }
+
+    console.log(chalk.bold.yellow('\n📊 ABA Collision Test Results:'));
+    printResultsTable(allResults);
+
+    if (allErrorSamples.length > 0) {
+      console.log(chalk.bold.yellow('\n🔬 Sampled Errors:'));
+      printErrorSamplesTable(allErrorSamples);
     }
   }
-}
 
-async function runTestsForLimiter(limiterType) {
-  const headers = {
-    ...BASE_HEADERS,
-    'x-rate-limiter': limiterType
-  };
-  const results = [];
-  for (let concurrency = MIN_CONCURRENCY; concurrency <= MAX_CONCURRENCY; concurrency++) {
-    console.log(`Running with concurrency level: ${concurrency} for limiter: ${limiterType}`);
-    const times = [];
-    let success = 0;
-    let rate_limit_collisions = 0;
-    let rate_limit_non_collisions = 0;
-    let other_errors = 0;
-    const chunks = Math.ceil(TOTAL_REQUESTS / concurrency);
-    for (let i = 0; i < chunks; i++) {
-      const promises = [];
-      for (let j = 0; j < concurrency && (i * concurrency + j) < TOTAL_REQUESTS; j++) {
-        promises.push(makeRequest(headers));
+  // --- Helper Functions ---
+
+  async function getAuthToken() {
+    const spinner = ora('Fetching authentication token...').start();
+    try {
+      const token = execSync('.github/bin/get-access-token').toString().trim();
+      spinner.succeed('Authentication token fetched.');
+      return token;
+    } catch (e) {
+      spinner.fail('Failed to get authentication token.');
+      console.error(chalk.red(e));
+      process.exit(1);
+    }
+  }
+
+  async function performSanityCheck(baseHeaders) {
+    console.log(chalk.bold.cyan('\n🔍 Performing Sanity Checks...'));
+    const spinner = ora('Running initial requests...').start();
+    for (const limiter of config.LIMITER_TYPES) {
+      spinner.text = `Checking ${limiter.name}...`;
+      try {
+        const headers = { ...baseHeaders, 'x-rate-limiter': limiter.headerValue };
+        const response = await axios.head(config.URL, { headers });
+        const limit = response.headers['x-ratelimit-limit'];
+        const remaining = response.headers['x-ratelimit-remaining'];
+        spinner.succeed(chalk.green(`${limiter.name}: OK (Limit: ${limit}, Remaining: ${remaining})`));
+      } catch (e) {
+        spinner.fail(chalk.red(`${limiter.name}: Failed! ${e.message}`));
+        process.exit(1);
       }
-      const chunkResults = await Promise.all(promises);
-      chunkResults.forEach(result => {
-        times.push(result.time);
-        if (result.is_other_error) {
-          other_errors++;
-        } else if (result.is_429) {
-          if (result.collision) {
-            rate_limit_collisions++;
-          } else {
-            rate_limit_non_collisions++;
-          }
-        } else {
-          success++;
+    }
+  }
+
+  async function waitForRefill() {
+    console.log(chalk.bold.cyan(`\n⏳ Waiting for token bucket to refill...`));
+    const spinner = ora({ text: `${config.REFILL_WAIT_SECONDS}s remaining`, color: 'blue' }).start();
+    for (let i = config.REFILL_WAIT_SECONDS; i > 0; i--) {
+      spinner.text = `${i}s remaining...`;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    spinner.succeed('Token bucket refilled.');
+  }
+
+  async function runTestsForLimiter(limiter, baseHeaders) {
+    console.log(chalk.bold.cyan(`\n🔥 Stress Testing: ${limiter.name}`));
+    const headers = { ...baseHeaders, 'x-rate-limiter': limiter.headerValue };
+    const results = [];
+    const errorSamples = [];
+
+    for (let concurrency = config.MIN_CONCURRENCY; concurrency <= config.MAX_CONCURRENCY; concurrency++) {
+      const spinner = ora(`Running with concurrency ${concurrency}...`).start();
+      const stats = {
+        success: 0,
+        collision_429: 0,
+        normal_429: 0,
+        other_error: 0,
+        allowed_times: [],
+        denied_times: [],
+      };
+      const totalRequests = config.TOTAL_REQUESTS_PER_CONCURRENCY;
+      const chunks = Math.ceil(totalRequests / concurrency);
+
+      for (let i = 0; i < chunks; i++) {
+        const promises = [];
+        for (let j = 0; j < concurrency && (i * concurrency + j) < totalRequests; j++) {
+          promises.push(makeRequest(headers));
         }
+        const chunkResults = await Promise.all(promises);
+        chunkResults.forEach(result => {
+          if (result.is_other_error) {
+            if (stats.other_error < 10) { // Sample up to 10 errors
+              errorSamples.push({ limiterName: limiter.name, concurrency, message: result.errorMessage });
+            }
+            stats.other_error++;
+          } else if (result.is_429) {
+            stats.denied_times.push(result.time);
+            if (result.collision) stats.collision_429++;
+            else stats.normal_429++;
+          } else {
+            stats.allowed_times.push(result.time);
+            stats.success++;
+          }
+        });
+      }
+
+      spinner.stop();
+      const avgAllowedTime = stats.allowed_times.reduce((a, b) => a + b, 0) / (stats.allowed_times.length || 1);
+      const avgDeniedTime = stats.denied_times.reduce((a, b) => a + b, 0) / (stats.denied_times.length || 1);
+
+      results.push({
+        limiterName: limiter.name,
+        concurrency,
+        allowedPct: (stats.success / totalRequests) * 100,
+        avgAllowedTime,
+        avgDeniedTime,
+        deniedCount: stats.denied_times.length,
+        collision429Pct: (stats.collision_429 / totalRequests) * 100,
+        normal429Pct: (stats.normal_429 / totalRequests) * 100,
+        errorPct: (stats.other_error / totalRequests) * 100,
       });
     }
-    const avgTime = times.reduce((a, b) => a + b, 0) / times.length || 0;
-    const successPercentage = (success / TOTAL_REQUESTS) * 100;
-    const rateLimitCollisionPercentage = (rate_limit_collisions / TOTAL_REQUESTS) * 100;
-    const rateLimitNonCollisionPercentage = (rate_limit_non_collisions / TOTAL_REQUESTS) * 100;
-    const otherErrorPercentage = (other_errors / TOTAL_REQUESTS) * 100;
-    results.push({
-      limiterType,
-      concurrency,
-      avgTime,
-      successPercentage,
-      rateLimitCollisionPercentage,
-      rateLimitNonCollisionPercentage,
-      otherErrorPercentage
-    });
+    return { results, errorSamples };
   }
-  return results;
-}
 
-function printTable(results) {
-  const tableData = results.map(r => [
-    r.limiterType,
-    r.concurrency,
-    `${(r.avgTime * 1000).toFixed(2)} ms`,
-    `${r.successPercentage.toFixed(2)}%`,
-    `${r.rateLimitCollisionPercentage.toFixed(2)}%`,
-    `${r.rateLimitNonCollisionPercentage.toFixed(2)}%`,
-    `${r.otherErrorPercentage.toFixed(2)}%`
-  ]);
-  const config = {
-    columns: [
-      { alignment: 'left' },
-      { alignment: 'left' },
-      { alignment: 'right' },
-      { alignment: 'right' },
-      { alignment: 'right' },
-      { alignment: 'right' },
-      { alignment: 'right' }
-    ]
-  };
-  console.log(table([[
-    'Limiter Type',
-    'Concurrency',
-    'Avg Time per Request',
-    'Success %',
-    '429 Collision %',
-    '429 Non-Collision %',
-    'Other Error %'
-  ], ...tableData], config));
-}
-
-async function main() {
-  let allResults = [];
-  for (const limiterType of LIMITER_TYPES) {
-    console.log(`\nStarting tests for limiter: ${limiterType}`);
-    const limiterResults = await runTestsForLimiter(limiterType);
-    allResults = [...allResults, ...limiterResults];
+  async function makeRequest(headers) {
+    const startTime = performance.now();
+    try {
+      const response = await axios.head(config.URL, { headers });
+      const collision = response.headers['x-ratelimit-collision']?.toLowerCase() === 'true';
+      return { time: performance.now() - startTime, is_429: false, collision, is_other_error: false };
+    } catch (error) {
+      const time = performance.now() - startTime;
+      if (error.response && error.response.status === 429) {
+        const collision = error.response.headers['x-ratelimit-collision']?.toLowerCase() === 'true';
+        return { time, is_429: true, collision, is_other_error: false };
+      }
+      return { time, is_429: false, collision: false, is_other_error: true, errorMessage: error.message };
+    }
   }
-  console.log('\nABA Collision Results:');
-  printTable(allResults);
-}
 
-main().catch(console.error);
+  function printResultsTable(results) {
+    const header = [
+      'Limiter', 'Concurrency', 'Allowed %', 'Avg Time (Allow)', 'Avg Time (Deny)', '429 Collision %', '429 Normal %', 'Error %'
+    ].map(h => chalk.bold.white(h));
+
+    const tableData = results.map(r => [
+      chalk.cyan(r.limiterName),
+      r.concurrency,
+      `${r.allowedPct.toFixed(2)}%`,
+      `${r.avgAllowedTime.toFixed(2)} ms`,
+      chalk[r.deniedCount > 0 ? 'yellow' : 'gray'](`${r.avgDeniedTime.toFixed(2)} ms`),
+      chalk[r.collision429Pct > 0 ? 'red' : 'green'](`${r.collision429Pct.toFixed(2)}%`),
+      `${r.normal429Pct.toFixed(2)}%`,
+      chalk[r.errorPct > 0 ? 'yellow' : 'white'](`${r.errorPct.toFixed(2)}%`),
+    ]);
+
+    console.log(table([header, ...tableData]));
+  }
+
+  function printErrorSamplesTable(errorSamples) {
+    const header = ['Limiter', 'Concurrency', 'Sampled Error Message'].map(h => chalk.bold.white(h));
+    const tableData = errorSamples.map(e => [
+      chalk.cyan(e.limiterName),
+      e.concurrency,
+      chalk.red(e.message),
+    ]);
+    console.log(table([header, ...tableData]));
+  }
+
+  main().catch(err => {
+    console.error(chalk.red.bold('\nAn unexpected error occurred:'));
+    console.error(err);
+    process.exit(1);
+  });
+
+})();

@@ -238,6 +238,75 @@ describe("applyRateLimit", () => {
     );
     expect(memoryCache.get(clientId)).toBeUndefined(); // Cache should not be populated
   });
+
+  it("should handle parallel requests without race conditions on the cache", async () => {
+    mockSend.mockResolvedValueOnce({
+      Item: { tokens: { N: "5" }, lastRefill: { N: Date.now().toString() } },
+    });
+    await applyRateLimit(mockDdbClient, tableName, clientId);
+    expect(memoryCache.get(clientId).tokens).toBe(4); // Primed and consumed 1.
+
+    // Act: Fire off 10 more requests in parallel.
+    const promises = [];
+    for (let i = 0; i < 10; i++) {
+      promises.push(applyRateLimit(mockDdbClient, tableName, clientId));
+    }
+    const results = await Promise.all(promises);
+
+    const allowedCount = results.filter((r) => r.allowed).length;
+    const deniedCount = results.filter((r) => !r.allowed).length;
+
+    expect(allowedCount).toBe(4);
+    expect(deniedCount).toBe(6);
+
+    const cached = memoryCache.get(clientId);
+    expect(Math.floor(cached.tokens)).toBe(0);
+  });
+
+  it("should correctly deplete tokens from in-memory cache during a rapid burst", async () => {
+    const initialTime = new Date("2025-11-23T12:00:00.000Z").getTime();
+    // Start with a small number of tokens to test depletion quickly.
+    mockSend.mockResolvedValueOnce({
+      Item: {
+        tokens: { N: "10" },
+        lastRefill: { N: initialTime.toString() },
+        refillRate: { N: "10" },
+        refillInterval: { N: "60" },
+        maxTokens: { N: "10" },
+      },
+    });
+
+    // First call to populate the cache.
+    let result = await applyRateLimit(mockDdbClient, tableName, clientId);
+    expect(result.allowed).toBe(true);
+    expect(result.rateLimitRemaining).toBe(9);
+    expect(mockSend).toHaveBeenCalledTimes(2); // Initial GetItem + async UpdateItem
+
+    // Subsequent calls in a rapid burst (9 more times).
+    for (let i = 0; i < 9; i++) {
+      // Advance time by a small amount, simulating requests in the same second.
+      jest.advanceTimersByTime(50);
+      result = await applyRateLimit(mockDdbClient, tableName, clientId);
+      expect(result.allowed).toBe(true);
+      // Each call should decrement the remaining tokens.
+      expect(result.rateLimitRemaining).toBe(8 - i);
+    }
+
+    // All 10 tokens should now be consumed.
+    const cached = memoryCache.get(clientId);
+    expect(Math.floor(cached.tokens)).toBe(0);
+
+    // The next call should be denied.
+    // A small refill will have occurred, but not enough for a full token.
+    jest.advanceTimersByTime(50);
+    result = await applyRateLimit(mockDdbClient, tableName, clientId);
+    expect(result.allowed).toBe(false);
+    expect(result.rateLimitRemaining).toBe(0);
+
+    // The total calls should be the initial Get/Update + 9 Updates for the burst
+    // The final denied call will also trigger a sync because tokens have refilled slightly.
+    expect(mockSend).toHaveBeenCalledTimes(2 + 9 + 1);
+  });
 });
 
 describe("syncToDynamo", () => {

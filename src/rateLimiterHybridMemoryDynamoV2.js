@@ -184,7 +184,7 @@ async function applyRateLimit(ddbClient, table, clientId) {
   const currentTime = Date.now();
   let cachedItem = memoryCache.get(clientId);
 
-  // If no cache or stale, fetch from DynamoDB.
+  // Get state from DB if cache is missing or stale.
   if (!cachedItem || currentTime - cachedItem.lastAccess > 1000) {
     const getParams = {
       TableName: table,
@@ -194,12 +194,10 @@ async function applyRateLimit(ddbClient, table, clientId) {
     };
     try {
       const getResult = await ddbClient.send(new GetItemCommand(getParams));
-      let item = calculateTokenState(getResult.Item || {});
+      const stateFromDB = calculateTokenState(getResult.Item || {});
 
-      cachedItem = {
-        ...item,
-        lastAccess: currentTime,
-      };
+      // Always populate the cache after a successful DB read.
+      cachedItem = { ...stateFromDB, lastAccess: currentTime };
       memoryCache.set(clientId, cachedItem);
     } catch (err) {
       error("DynamoDB GetItem error:", err);
@@ -214,39 +212,44 @@ async function applyRateLimit(ddbClient, table, clientId) {
     }
   }
 
-  // Recalculate state based on the cached item.
-  const { maxTokens, refillInterval, refillRate, cappedTokens } =
-    calculateTokenState(cachedItem);
-  const tokensFloored = Math.floor(cappedTokens);
+  // Calculate the current token count based on the cached state.
+  const timeDelta = Math.max(0, currentTime - cachedItem.lastRefill);
+  const refillAmount =
+    (cachedItem.refillRate * timeDelta) / (cachedItem.refillInterval * 1000);
+  const potentialTokens = cachedItem.tokens + refillAmount;
+  const cappedTokens = Math.min(potentialTokens, cachedItem.maxTokens);
 
+  // Decide if the request is allowed and formulate the result.
+  const tokensFloored = Math.floor(cappedTokens);
   const isAllowed = tokensFloored >= 1;
   const remaining = isAllowed ? tokensFloored - 1 : tokensFloored;
 
   const rateLimitResult = {
     allowed: isAllowed,
     rateLimitRemaining: remaining,
-    rateLimitLimit: maxTokens,
-    collision: false, // This is now less meaningful as collisions are handled in the background.
+    rateLimitLimit: cachedItem.maxTokens,
+    collision: false,
     rateLimitReset: calculateRateLimitReset(
       remaining,
-      maxTokens,
-      refillInterval,
-      refillRate,
+      cachedItem.maxTokens,
+      cachedItem.refillInterval,
+      cachedItem.refillRate,
     ),
   };
 
-  // If the state has changed (token consumed or refilled), sync to DynamoDB.
+  // If allowed (or if tokens have refilled), update cache and trigger async DB sync.
   const hasRefilled = cappedTokens > cachedItem.tokens;
   if (isAllowed || hasRefilled) {
-    // Update cache immediately for subsequent requests in the same invocation.
     const newTokens = isAllowed ? cappedTokens - 1 : cappedTokens;
+    // Update cache with the new consumed value.
     memoryCache.set(clientId, {
       ...cachedItem,
       tokens: newTokens,
       lastRefill: currentTime,
       lastAccess: currentTime,
     });
-    // Update DynamoDB.
+
+    // Pass the pre-consumption state to syncToDynamo for the conditional check.
     syncToDynamo(ddbClient, table, clientId, cachedItem, isAllowed).catch(
       (err) => {
         error("Sync to Dynamo failed:", err);
