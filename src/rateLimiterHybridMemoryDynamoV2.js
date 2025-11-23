@@ -11,9 +11,7 @@
  * Pros:
  * - Very low latency (~20–60 ms) while greatly reducing lost updates
  * - Near-global consistency with only tiny windows for overages
- * - Accumulates fractional tokens correctly across denied requests
  * - Self-healing: collisions are detected and corrected automatically
- * - Good balance of performance and accuracy for most production workloads
  *
  * Cons:
  * - Still possible (but rare) brief overages/underages under extreme contention
@@ -67,223 +65,200 @@ function sanitizeNumber(
   return num;
 }
 
-// Sanitize and set defaults for DynamoDB item attributes
-// Handles missing or malformed data gracefully and caps values to prevent abuse
-// Returns a sanitized item object with guaranteed valid numeric fields
-function sanitizeItem(item) {
-  const currentTime = Date.now(); // In milliseconds
+// Pure function to calculate the state of the token bucket.
+function calculateTokenState(item) {
+  const currentTime = Date.now();
+  // Handle both DynamoDB format { N: "value" } and plain number
+  const getMaxTokens = (i) => i?.maxTokens?.N || i?.maxTokens;
+  const getRefillRate = (i) => i?.refillRate?.N || i?.refillRate;
+  const getRefillInterval = (i) => i?.refillInterval?.N || i?.refillInterval;
+  const getLastRefill = (i) => i?.lastRefill?.N || i?.lastRefill;
+  const getTokens = (i) => i?.tokens?.N || i?.tokens;
+
   const maxTokens = sanitizeNumber(
-    item?.maxTokens?.N,
+    getMaxTokens(item),
     defaultMaxTokens,
     1,
     hardMaxTokens,
   );
   const refillRate = sanitizeNumber(
-    item?.refillRate?.N,
+    getRefillRate(item),
     defaultRefillRate,
     1,
     hardMaxRefillRate,
   );
   const refillInterval = sanitizeNumber(
-    item?.refillInterval?.N,
+    getRefillInterval(item),
     defaultInterval,
     1,
   );
-  const lastRefill = sanitizeNumber(
-    item?.lastRefill?.N,
-    currentTime,
-    0,
-    currentTime,
-  );
-  const tokens = sanitizeNumber(item?.tokens?.N, maxTokens, 0, maxTokens);
+  const lastRefill = sanitizeNumber(getLastRefill(item), currentTime, 0);
+  const tokens = sanitizeNumber(getTokens(item), maxTokens, 0, maxTokens);
+
   const timeDelta = Math.max(0, currentTime - lastRefill);
-  const refillAmount = (refillRate * timeDelta) / (refillInterval * 1000); // Use float for precision
+  const refillAmount = (refillRate * timeDelta) / (refillInterval * 1000);
   const potentialTokens = tokens + refillAmount;
   const cappedTokens = Math.min(potentialTokens, maxTokens);
-  const cappedTokensFloored = Math.floor(cappedTokens);
+
   return {
-    tokens,
+    tokens, // Current tokens (can be float)
     lastRefill,
     refillRate,
     refillInterval,
     maxTokens,
     currentTime,
-    timeDelta,
-    refillAmount,
-    potentialTokens,
-    cappedTokens,
-    cappedTokensFloored,
+    cappedTokens, // Capped tokens (can be float)
   };
 }
-// Hybrid In-Memory + DynamoDB Token Bucket Rate Limiter
-// Uses in-memory cache for approximate, fast checks/updates.
-// Asynchronously syncs to DynamoDB with conditional updates for improved atomicity and eventual consistency.
-// Note: In-memory is per-Lambda invocation
-async function applyRateLimit(ddbClient, table, clientId) {
-  let currentTime = Date.now();
-  let cachedItem = memoryCache.get(clientId);
-  const getParams = {
+
+async function syncToDynamo(
+  ddbClient,
+  table,
+  clientId,
+  initialState,
+  isConsumed,
+  retries = 1,
+) {
+  const { refillRate, refillInterval, maxTokens, cappedTokens } =
+    calculateTokenState(initialState);
+
+  // If consumed, new token count is one less than the calculated capped tokens.
+  // Otherwise, it's just the refilled tokens. Always floor for storage.
+  const newTokens = isConsumed
+    ? Math.floor(cappedTokens - 1)
+    : Math.floor(cappedTokens);
+
+  const updateParams = {
     TableName: table,
     Key: { clientId: { S: clientId } },
-    ProjectionExpression:
-      "tokens, lastRefill, refillRate, refillInterval, maxTokens",
+    UpdateExpression: `
+      SET tokens = :newTokens,
+          lastRefill = :currentTime,
+          refillRate = :refillRate,
+          refillInterval = :refillInterval,
+          maxTokens = :maxTokens
+    `,
+    ConditionExpression:
+      "attribute_not_exists(lastRefill) OR lastRefill = :expectedLastRefill",
+    ExpressionAttributeValues: {
+      ":newTokens": { N: newTokens.toString() },
+      ":currentTime": { N: initialState.currentTime.toString() },
+      ":refillRate": { N: refillRate.toString() },
+      ":refillInterval": { N: refillInterval.toString() },
+      ":maxTokens": { N: maxTokens.toString() },
+      ":expectedLastRefill": { N: initialState.lastRefill.toString() },
+    },
+    ReturnValues: "NONE",
   };
 
-  // If no cache or stale (e.g., older than 1 second for approximation), fetch from DynamoDB
-  if (!cachedItem || currentTime - cachedItem.lastAccess > 1000) {
-    let item;
+  try {
+    await ddbClient.send(new UpdateItemCommand(updateParams));
+  } catch (err) {
+    if (err.name === "ConditionalCheckFailedException") {
+      if (retries > 0) {
+        const getParams = {
+          TableName: table,
+          Key: { clientId: { S: clientId } },
+          ProjectionExpression:
+            "tokens, lastRefill, refillRate, refillInterval, maxTokens",
+        };
+        const getResult = await ddbClient.send(new GetItemCommand(getParams));
+        const refreshedItem = getResult.Item || {};
+        memoryCache.set(clientId, {
+          ...calculateTokenState(refreshedItem),
+          lastAccess: Date.now(),
+        });
+      } else {
+        error(
+          "Async DynamoDB UpdateItem failed after retry due to collision.",
+          { clientId },
+        );
+      }
+    } else {
+      error("Async DynamoDB UpdateItem error in hybrid:", err);
+    }
+  }
+}
 
+async function applyRateLimit(ddbClient, table, clientId) {
+  const currentTime = Date.now();
+  let cachedItem = memoryCache.get(clientId);
+
+  // If no cache or stale, fetch from DynamoDB.
+  if (!cachedItem || currentTime - cachedItem.lastAccess > 1000) {
+    const getParams = {
+      TableName: table,
+      Key: { clientId: { S: clientId } },
+      ProjectionExpression:
+        "tokens, lastRefill, refillRate, refillInterval, maxTokens",
+    };
     try {
       const getResult = await ddbClient.send(new GetItemCommand(getParams));
-      item = getResult.Item || {};
-    } catch (err) {
-      if (err.name === "ResourceNotFoundException") {
-        if (err.message.includes(table)) {
-          error(`DynamoDB table ${table} not found: `, err);
-          throw err;
-        } else {
-          item = {};
-        }
-      } else {
-        error("DynamoDB GetItem error:", err);
-        throw err;
-      }
-    }
+      let item = calculateTokenState(getResult.Item || {});
 
-    const sanitized = sanitizeItem(item);
-    cachedItem = {
-      ...sanitized,
-      lastAccess: currentTime,
-    };
-    memoryCache.set(clientId, cachedItem);
+      cachedItem = {
+        ...item,
+        lastAccess: currentTime,
+      };
+      memoryCache.set(clientId, cachedItem);
+    } catch (err) {
+      error("DynamoDB GetItem error:", err);
+      // On read error, deny the request to be safe.
+      return {
+        allowed: false,
+        rateLimitRemaining: 0,
+        rateLimitLimit: defaultMaxTokens,
+        collision: false,
+        rateLimitReset: 0,
+      };
+    }
   }
 
-  // Refill in-memory tokens approximately (using float precision)
-  let timeDelta = Math.max(0, currentTime - cachedItem.lastRefill);
-  let refillAmount =
-    (cachedItem.refillRate * timeDelta) / (cachedItem.refillInterval * 1000);
+  // Recalculate state based on the cached item.
+  const { maxTokens, refillInterval, refillRate, cappedTokens } =
+    calculateTokenState(cachedItem);
+  const tokensFloored = Math.floor(cappedTokens);
 
-  cachedItem.potentialTokens = cachedItem.tokens + refillAmount;
-  cachedItem.cappedTokens = Math.min(
-    cachedItem.potentialTokens,
-    cachedItem.maxTokens,
-  );
-  cachedItem.cappedTokensFloored = Math.floor(cachedItem.cappedTokens);
+  const isAllowed = tokensFloored >= 1;
+  const remaining = isAllowed ? tokensFloored - 1 : tokensFloored;
 
-  let rateLimitResult = {
-    allowed: cachedItem.cappedTokensFloored >= 1,
-    rateLimitRemaining: cachedItem.cappedTokensFloored, // Pre-consumption for denied
-    rateLimitLimit: cachedItem.maxTokens,
-    collision: false,
+  const rateLimitResult = {
+    allowed: isAllowed,
+    rateLimitRemaining: remaining,
+    rateLimitLimit: maxTokens,
+    collision: false, // This is now less meaningful as collisions are handled in the background.
+    rateLimitReset: calculateRateLimitReset(
+      remaining,
+      maxTokens,
+      refillInterval,
+      refillRate,
+    ),
   };
 
-  if (rateLimitResult.rateLimitRemaining < cachedItem.maxTokens) {
-    rateLimitResult.rateLimitReset = calculateRateLimitReset(
-      rateLimitResult.rateLimitRemaining,
-      cachedItem.maxTokens,
-      cachedItem.refillInterval,
-      cachedItem.refillRate,
-    );
-  } else {
-    rateLimitResult.rateLimitReset = 0;
-  }
-
-  let isConsume = rateLimitResult.allowed;
-  let newTokens = isConsume
-    ? cachedItem.cappedTokens - 1
-    : cachedItem.cappedTokens;
-
-  if (isConsume) {
-    cachedItem.tokens = newTokens;
-    cachedItem.lastAccess = currentTime;
-    cachedItem.lastRefill = currentTime;
-    memoryCache.set(clientId, cachedItem);
-    rateLimitResult.rateLimitRemaining = Math.floor(newTokens);
-    if (rateLimitResult.rateLimitRemaining < cachedItem.maxTokens) {
-      rateLimitResult.rateLimitReset = calculateRateLimitReset(
-        rateLimitResult.rateLimitRemaining,
-        cachedItem.maxTokens,
-        cachedItem.refillInterval,
-        cachedItem.refillRate,
-      );
-    } else {
-      rateLimitResult.rateLimitReset = 0;
-    }
-  }
-
-  // Asynchronously sync to DynamoDB if needed (non-blocking, with limited retries on collision)
-  if (timeDelta > 0 || isConsume) {
-    // Sync if refilled or consumed
-    const syncToDynamo = async (retries = 0) => {
-      currentTime = Date.now(); // Refresh time for accuracy in retries
-      timeDelta = Math.max(0, currentTime - cachedItem.lastRefill);
-      refillAmount =
-        (cachedItem.refillRate * timeDelta) /
-        (cachedItem.refillInterval * 1000);
-      const oldTokens = cachedItem.tokens; // Pre-refill for denied condition
-      cachedItem.cappedTokens = Math.min(
-        oldTokens + refillAmount,
-        cachedItem.maxTokens,
-      );
-      isConsume = cachedItem.cappedTokens >= 1 && isConsume; // Re-check if still consumable
-      newTokens = isConsume
-        ? cachedItem.cappedTokens - 1
-        : cachedItem.cappedTokens;
-      const conditionExpression = isConsume
-        ? "(attribute_not_exists(tokens) OR tokens >= :expectedTokens) AND (attribute_not_exists(lastRefill) OR lastRefill <= :expectedLastRefill)"
-        : "(attribute_not_exists(tokens) OR tokens = :oldTokens) AND (attribute_not_exists(lastRefill) OR lastRefill = :expectedLastRefill)";
-      const updateParams = {
-        TableName: table,
-        Key: { clientId: { S: clientId } },
-        UpdateExpression: `
-          SET tokens = :newTokens,
-              lastRefill = :currentTime,
-              refillRate = :refillRate,
-              refillInterval = :refillInterval,
-              maxTokens = :maxTokens
-        `,
-        ConditionExpression: conditionExpression,
-        ExpressionAttributeValues: {
-          ":newTokens": { N: newTokens.toString() },
-          ":currentTime": { N: currentTime.toString() },
-          ":refillRate": { N: cachedItem.refillRate.toString() },
-          ":refillInterval": { N: cachedItem.refillInterval.toString() },
-          ":maxTokens": { N: cachedItem.maxTokens.toString() },
-          ":expectedTokens": { N: cachedItem.cappedTokens.toString() }, // Refilled capped
-          ":expectedLastRefill": { N: cachedItem.lastRefill.toString() },
-          ":oldTokens": { N: oldTokens.toString() }, // Pre-refill for denied
-        },
-        ReturnValues: "NONE",
-      };
-      try {
-        await ddbClient.send(new UpdateItemCommand(updateParams));
-      } catch (err) {
-        if (err.name === "ConditionalCheckFailedException") {
-          rateLimitResult.collision = true;
-          const getResult = await ddbClient.send(new GetItemCommand(getParams));
-          const refreshedItem = sanitizeItem(getResult.Item || {});
-          cachedItem = { ...refreshedItem, lastAccess: currentTime };
-          memoryCache.set(clientId, cachedItem);
-
-          if (retries > 0) {
-            return syncToDynamo(retries - 1);
-          } else {
-            error(
-              "Async DynamoDB UpdateItem failed after retries due to collisions.",
-            );
-            return; // Exhausted retries
-          }
-        } else {
-          error("Async DynamoDB UpdateItem error in hybrid:", err);
-        }
-      }
-    };
-
-    await syncToDynamo().catch((err) => {
-      error("Sync to Dynamo failed:", err);
+  // If the state has changed (token consumed or refilled), sync to DynamoDB.
+  const hasRefilled = cappedTokens > cachedItem.tokens;
+  if (isAllowed || hasRefilled) {
+    // Update cache immediately for subsequent requests in the same invocation.
+    const newTokens = isAllowed ? cappedTokens - 1 : cappedTokens;
+    memoryCache.set(clientId, {
+      ...cachedItem,
+      tokens: newTokens,
+      lastRefill: currentTime,
+      lastAccess: currentTime,
     });
+    // Update DynamoDB.
+    syncToDynamo(ddbClient, table, clientId, cachedItem, isAllowed).catch(
+      (err) => {
+        error("Sync to Dynamo failed:", err);
+      },
+    );
   }
 
   return rateLimitResult;
 }
-module.exports = { applyRateLimit, memoryCache };
+module.exports = {
+  applyRateLimit,
+  memoryCache,
+  calculateTokenState,
+  syncToDynamo,
+};

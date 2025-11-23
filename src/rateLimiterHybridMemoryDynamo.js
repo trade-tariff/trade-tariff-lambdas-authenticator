@@ -104,10 +104,6 @@ function sanitizeItem(item) {
   };
 }
 
-// Hybrid In-Memory + DynamoDB Token Bucket Rate Limiter
-// Uses in-memory cache for approximate, fast checks/updates.
-// Periodically/asynchronously syncs to DynamoDB for eventual consistency.
-// Note: In-memory is per-Lambda invocation
 async function applyRateLimit(ddbClient, table, clientId) {
   const currentTime = Date.now();
   let cachedItem = memoryCache.get(clientId);
@@ -202,12 +198,12 @@ async function applyRateLimit(ddbClient, table, clientId) {
     TableName: table,
     Key: { clientId: { S: clientId } },
     UpdateExpression: `
-      SET tokens = : newTokens,
-  lastRefill = : currentTime,
-    refillRate = : refillRate,
-      refillInterval = : refillInterval,
-        maxTokens = : maxTokens
-          `,
+      SET tokens = :newTokens,
+          lastRefill = :currentTime,
+          refillRate = :refillRate,
+          refillInterval = :refillInterval,
+          maxTokens = :maxTokens
+    `,
     ExpressionAttributeValues: {
       ":newTokens": { N: newTokens.toString() },
       ":currentTime": { N: currentTime.toString() },

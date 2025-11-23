@@ -1,0 +1,57 @@
+#!/usr/bin/env node
+
+const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
+const { applyRateLimit: applyV2 } = require('../src/rateLimiterHybridMemoryDynamoV2.js');
+const { applyRateLimit: applyV1 } = require('../src/rateLimiterHybridMemoryDynamo.js');
+const { applyRateLimit: applyAtomic } = require('../src/rateLimiterAtomicDynamoDb.js');
+
+const region = 'eu-west-2';
+const table = 'client-rate-limits';
+
+async function testLimiter(name, limiterFn, clientId) {
+  console.log(`\n--- Testing: ${name} ---`);
+  console.log(`Client ID: ${clientId}`);
+  console.log(`----------------------------------------`);
+
+  const ddbClient = new DynamoDBClient({ region });
+
+  try {
+    console.log('Attempting to apply rate limit...');
+    const result = await limiterFn(ddbClient, table, clientId);
+
+    console.log(`\n--- ✅ [${name}] Test Result ---`);
+    console.log('Rate limit applied successfully.');
+    console.log('Result:', JSON.stringify(result, null, 2));
+    console.log('---------------------------------');
+    return true;
+  } catch (err) {
+    console.error(`\n--- ❌ [${name}] Test Failed ---`);
+    console.error('An error occurred during the test:');
+    console.error(err);
+    console.error('---------------------------------');
+    return false;
+  }
+}
+
+async function main() {
+  console.log(`--- Starting DynamoDB Integration Tests ---`);
+  console.log(`Region: ${region}`);
+  console.log(`Table: ${table}`);
+
+  const results = await Promise.all([
+    testLimiter('Hybrid V2 (Current)', applyV2, 'validation-client-hybrid-v2'),
+    testLimiter('Hybrid V1 (Legacy)', applyV1, 'validation-client-hybrid-v1'),
+    testLimiter('Atomic', applyAtomic, 'validation-client-atomic'),
+  ]);
+
+  const allPassed = results.every(r => r);
+
+  if (allPassed) {
+    console.log('\n🎉 All rate limiter validations passed successfully.');
+  } else {
+    console.error('\n🔥 One or more rate limiter validations failed.');
+    process.exit(1);
+  }
+}
+
+main();
