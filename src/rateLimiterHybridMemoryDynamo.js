@@ -1,23 +1,9 @@
 /**
- * ===================================================================
- * Optimistic Fire-and-Forget Rate Limiter (Clobbering / Eventual Consistency)
- * ===================================================================
- * Behaviour:
- * - Performs fast in-memory token calculation and returns immediately.
- * - Asynchronously writes the new state to DynamoDB with an unconditional UpdateItem.
- * - Concurrent updates from other POPs can overwrite each other (last-write-wins).
+ * Hybrid Rate Limiter (V1 - Optimistic)
  *
- * Pros:
- * - Extremely low latency – typically < 20 ms added
- * - Minimal DynamoDB cost (writes only when state changes)
- * - High throughput, excellent for bursty traffic
- *
- * Cons:
- * - Possible brief overages/underages during contention (lost updates)
- * - Global state can lag behind reality by seconds
- * - Harder to debug exact token counts in high-concurrency scenarios
- *
- * Best for: High-performance public APIs where occasional minor over-issuance is acceptable and latency is critical.
+ * - Very fast: Checks tokens in memory and responds immediately.
+ * - Updates DynamoDB in the background without waiting.
+ * - Result: Very low latency, but can allow too many requests during bursts (lost updates).
  */
 const {
   GetItemCommand,
