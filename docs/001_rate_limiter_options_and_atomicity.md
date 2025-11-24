@@ -1,4 +1,4 @@
-# 1. Rate Limiter Atomicity and Concurrency Strategy
+# Rate Limiter Atomicity and Concurrency Strategy
 
 - **Status:** Proposed
 - **Date:** 2025-11-23
@@ -13,10 +13,10 @@ This non-atomic behavior is unsettling and undermines the predictability of the 
 
 ## Decision Drivers
 
-- **Accuracy:** The need for strict, predictable enforcement of rate limits.
-- **Latency:** The desire to keep API response times as low as possible, a primary goal of using Lambda@Edge.
-- **Implementation Effort:** The amount of work required to implement and maintain the solution.
-- **Operational Complexity:** The cost and effort of managing any new infrastructure.
+- Accuracy: The need for strict, predictable enforcement of rate limits.
+- Latency: The desire to keep API response times as low as possible, a primary goal of using Lambda@Edge.
+- Implementation Effort: The amount of work required to implement and maintain the solution.
+- Operational Complexity: The cost and effort of managing any new infrastructure.
 
 ## Considered Options
 
