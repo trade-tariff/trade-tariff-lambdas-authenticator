@@ -1,3 +1,10 @@
+/**
+ * Fully Atomic Rate Limiter
+ *
+ * - Guarantees exact token counts: No requests ever go over the limit.
+ * - Every request waits for DynamoDB to confirm the token is used.
+ * - Result: Very accurate, but adds delay to every request.
+ */
 const {
   GetItemCommand,
   UpdateItemCommand,

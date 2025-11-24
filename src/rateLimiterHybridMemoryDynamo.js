@@ -1,3 +1,10 @@
+/**
+ * Hybrid Rate Limiter (V1 - Optimistic)
+ *
+ * - Very fast: Checks tokens in memory and responds immediately.
+ * - Updates DynamoDB in the background without waiting.
+ * - Result: Very low latency, but can allow too many requests during bursts (lost updates).
+ */
 const {
   GetItemCommand,
   UpdateItemCommand,
@@ -83,10 +90,6 @@ function sanitizeItem(item) {
   };
 }
 
-// Hybrid In-Memory + DynamoDB Token Bucket Rate Limiter
-// Uses in-memory cache for approximate, fast checks/updates.
-// Periodically/asynchronously syncs to DynamoDB for eventual consistency.
-// Note: In-memory is per-Lambda invocation
 async function applyRateLimit(ddbClient, table, clientId) {
   const currentTime = Date.now();
   let cachedItem = memoryCache.get(clientId);
@@ -181,12 +184,12 @@ async function applyRateLimit(ddbClient, table, clientId) {
     TableName: table,
     Key: { clientId: { S: clientId } },
     UpdateExpression: `
-      SET tokens = : newTokens,
-  lastRefill = : currentTime,
-    refillRate = : refillRate,
-      refillInterval = : refillInterval,
-        maxTokens = : maxTokens
-          `,
+      SET tokens = :newTokens,
+          lastRefill = :currentTime,
+          refillRate = :refillRate,
+          refillInterval = :refillInterval,
+          maxTokens = :maxTokens
+    `,
     ExpressionAttributeValues: {
       ":newTokens": { N: newTokens.toString() },
       ":currentTime": { N: currentTime.toString() },

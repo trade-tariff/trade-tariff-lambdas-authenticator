@@ -1,0 +1,22 @@
+{
+  "DYNAMODB_TABLE": "client-rate-limits",
+  "LOG_LEVEL": "DEBUG",
+  "RATE_LIMITER_CONFIGURABLE_VIA_HEADER": false,
+  "SCOPES": {
+    "fpo/read": {
+      "allowedPaths": ["/fpo-code-search"]
+    },
+    "spimm/read": {
+      "allowedPaths": ["/xi/api/green_lanes"]
+    },
+    "tariff/read": {
+      "allowedPaths": ["/uk/api", "/xi/api"],
+      "excludedPaths": ["green_lanes", "user", "admin", "notifications"]
+    },
+    "tariff/write": {
+      "allowedPaths": ["/uk/api", "/xi/api", "/uk/admin", "/xi/admin"],
+      "excludedPaths": ["/xi/api/green_lanes"]
+    }
+  },
+  "USER_POOL_ID": "eu-west-2_eYCVlIQL0"
+}
