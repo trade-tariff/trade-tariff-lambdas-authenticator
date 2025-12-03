@@ -150,10 +150,27 @@ async function syncToDynamo(
         };
         const getResult = await ddbClient.send(new GetItemCommand(getParams));
         const refreshedItem = getResult.Item || {};
+        const freshState = calculateTokenState(refreshedItem);
+
+        const tokensAfterRefill = isConsumed
+          ? Math.floor(freshState.cappedTokens - 1)
+          : Math.floor(freshState.cappedTokens);
+
         memoryCache.set(clientId, {
           ...calculateTokenState(refreshedItem),
+          tokens: tokensAfterRefill,
           lastAccess: Date.now(),
         });
+
+        // Retry the update with the fresh state and decremented retries.
+        return syncToDynamo(
+          ddbClient,
+          table,
+          clientId,
+          freshState,
+          isConsumed,
+          retries - 1,
+        );
       } else {
         error(
           "Async DynamoDB UpdateItem failed after retry due to collision.",

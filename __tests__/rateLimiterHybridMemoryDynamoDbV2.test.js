@@ -399,13 +399,13 @@ describe("syncToDynamo", () => {
       1,
     ); // 1 retry
 
-    expect(mockSend).toHaveBeenCalledTimes(2); // Update + GetItem
+    expect(mockSend).toHaveBeenCalledTimes(3); // Update + GetItem plus 1 Retry Update
     expect(mockSend).toHaveBeenCalledWith(expect.any(UpdateItemCommand));
     expect(mockSend).toHaveBeenCalledWith(expect.any(GetItemCommand));
     expect(error).not.toHaveBeenCalled(); // No error logged for first collision
     const cached = memoryCache.get(clientId);
     expect(cached).toMatchObject({
-      tokens: 5,
+      tokens: 4,
       lastRefill: initialTime + 100,
     });
   });
