@@ -1,8 +1,8 @@
 {
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.936.0",
-    "aws-jwt-verify": "^5.1.1",
-    "jwt-decode": "^4.0.0"
+    "@smithy/node-http-handler": "^4.4.5",
+    "aws-jwt-verify": "^5.1.1"
   },
   "devDependencies": {
     "axios": "^1.6.8",

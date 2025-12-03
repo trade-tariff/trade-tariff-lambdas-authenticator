@@ -203,7 +203,7 @@ describe("applyRateLimit", () => {
     }); // First GetItem
 
     await applyRateLimit(mockDdbClient, tableName, clientId); // First call
-    jest.advanceTimersByTime(1500); // Advance time beyond 1000ms staleness
+    jest.advanceTimersByTime(150000); // Advance time beyond 150000ms staleness
     mockSend.mockResolvedValueOnce({
       Item: {
         tokens: { N: "9" },

@@ -13,6 +13,7 @@ const { error } = require("./logger");
 
 // In-memory cache: Map<clientId, {tokens: number, lastRefill: number, ...}>
 const memoryCache = new Map(); // Local to Lambda invocation; approximate and non-persistent
+const cacheTtlMs = 15000; // 15 seconds cache TTL
 const hardMaxTokens = 2500; // Absolute maximum tokens to prevent abuse
 const hardMaxRefillRate = 2500; // Absolute maximum refill rate to prevent abuse
 const defaultRefillRate = 300; // Tokens per interval
@@ -170,7 +171,7 @@ async function applyRateLimit(ddbClient, table, clientId) {
   let cachedItem = memoryCache.get(clientId);
 
   // Get state from DB if cache is missing or stale.
-  if (!cachedItem || currentTime - cachedItem.lastAccess > 1000) {
+  if (!cachedItem || currentTime - cachedItem.lastAccess > cacheTtlMs) {
     const getParams = {
       TableName: table,
       Key: { clientId: { S: clientId } },

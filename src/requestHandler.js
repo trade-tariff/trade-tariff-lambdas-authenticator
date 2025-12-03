@@ -1,5 +1,7 @@
 const { CognitoJwtVerifier } = require("aws-jwt-verify");
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
+const { NodeHttpHandler } = require("@smithy/node-http-handler");
+const https = require("https");
 
 const config = require("./config.json");
 
@@ -13,7 +15,6 @@ const {
   applyRateLimit: fullyAtomicRateLimit,
 } = require("./rateLimiterAtomicDynamoDb");
 const { error } = require("./logger");
-const { jwtDecode } = require("jwt-decode");
 
 const rateLimitOptions = {
   "reduced-atomicity-hybrid-v1": reducedAtomicityHybridLimitV1,
@@ -62,7 +63,26 @@ const ERRORS = {
 
 // NOTE: All of our viewer requests originate from CloudFront in the eu-west-2 region so we create the DynamoDB client in that region.
 // This reduces latency and avoids potential issues with regional endpoints.
-const ddbClient = new DynamoDBClient({ region: "eu-west-2" });
+const agent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 50,
+  keepAliveMsecs: 10000,
+});
+const ddbClient = new DynamoDBClient({
+  region: "eu-west-2",
+  requestHandler: new NodeHttpHandler({
+    httpsAgent: agent,
+    connectionTimeout: 500,
+    socketTimeout: 500,
+  }),
+});
+
+// Hoist the verifier to avoid recreating it on every invocation
+const verifier = CognitoJwtVerifier.create({
+  userPoolId: USER_POOL_ID,
+  tokenUse: "access",
+  clientId: null,
+});
 
 function authorised(scopes, path) {
   const scopeList = scopes ? scopes.split(" ") : [];
@@ -129,8 +149,8 @@ async function handler(event, _context, callback) {
   const token = authValue.split(" ")[1];
 
   try {
-    const decoded = jwtDecode(token);
-    const clientId = decoded.client_id;
+    const payload = await verifier.verify(token);
+    const clientId = payload.client_id;
 
     if (!clientId) {
       return callback(null, {
@@ -140,13 +160,6 @@ async function handler(event, _context, callback) {
       });
     }
 
-    const verifier = CognitoJwtVerifier.create({
-      userPoolId: USER_POOL_ID,
-      tokenUse: "access",
-      clientId: clientId,
-    });
-
-    const payload = await verifier.verify(token);
     const scopes = payload.scope;
     const path = request.uri;
 
