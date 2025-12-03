@@ -112,10 +112,12 @@ function authorised(scopes, path) {
   return false;
 }
 
-async function handler(event, _context, callback) {
+async function handler(event, context, callback) {
   const request = event.Records[0].cf.request;
   const headers = request.headers;
   const authHeader = headers["authorization"];
+
+  context.callbackWaitsForEmptyEventLoop = false;
 
   let applyRateLimit;
 
