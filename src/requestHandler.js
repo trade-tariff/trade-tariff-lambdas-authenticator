@@ -62,6 +62,34 @@ const ERRORS = {
   }),
 };
 
+const tokenCache = new Map();
+const MAX_CACHE_SIZE = 1000;
+
+async function verifyTokenCached(token) {
+  const currentTime = Math.floor(Date.now() / 1000);
+
+  if (tokenCache.has(token)) {
+    const payload = tokenCache.get(token);
+
+    if (payload.exp > currentTime) {
+      return payload;
+    }
+
+    tokenCache.delete(token);
+  }
+
+  const payload = await verifier.verify(token);
+
+  if (tokenCache.size >= MAX_CACHE_SIZE) {
+    const firstKey = tokenCache.keys().next().value;
+    tokenCache.delete(firstKey);
+  }
+
+  tokenCache.set(token, payload);
+
+  return payload;
+}
+
 // NOTE: All of our viewer requests originate from CloudFront in the eu-west-2 region so we create the DynamoDB client in that region.
 // This reduces latency and avoids potential issues with regional endpoints.
 const agent = new https.Agent({
@@ -154,7 +182,7 @@ async function handler(event, context, callback) {
 
   try {
     const tAuthStart = performance.now();
-    const payload = await verifier.verify(token);
+    const payload = await verifyTokenCached(token);
     const tAuthEnd = performance.now();
     const clientId = payload.client_id;
 
