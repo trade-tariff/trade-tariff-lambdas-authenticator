@@ -15,6 +15,7 @@ const {
   applyRateLimit: fullyAtomicRateLimit,
 } = require("./rateLimiterAtomicDynamoDb");
 const { error } = require("./logger");
+const { performance } = require("perf_hooks");
 
 const rateLimitOptions = {
   "reduced-atomicity-hybrid-v1": reducedAtomicityHybridLimitV1,
@@ -113,6 +114,7 @@ function authorised(scopes, path) {
 }
 
 async function handler(event, context, callback) {
+  const tStart = performance.now();
   const request = event.Records[0].cf.request;
   const headers = request.headers;
   const authHeader = headers["authorization"];
@@ -151,7 +153,9 @@ async function handler(event, context, callback) {
   const token = authValue.split(" ")[1];
 
   try {
+    const tAuthStart = performance.now();
     const payload = await verifier.verify(token);
+    const tAuthEnd = performance.now();
     const clientId = payload.client_id;
 
     if (!clientId) {
@@ -173,6 +177,7 @@ async function handler(event, context, callback) {
       });
     }
 
+    const tLimitStart = performance.now();
     const {
       allowed,
       rateLimitRemaining,
@@ -180,6 +185,7 @@ async function handler(event, context, callback) {
       rateLimitReset,
       collision,
     } = await applyRateLimit(ddbClient, DYNAMODB_TABLE, clientId);
+    const tLimitEnd = performance.now();
 
     const rateLimitHeaders = {
       "x-ratelimit-limit": [
@@ -198,6 +204,24 @@ async function handler(event, context, callback) {
         { key: "X-RateLimit-Collision", value: "true" },
       ];
     }
+
+    const tTotal = performance.now() - tStart;
+    const authDuration = tAuthEnd - tAuthStart;
+    const limitDuration = tLimitEnd - tLimitStart;
+    const overhead = tTotal - (authDuration + limitDuration);
+
+    console.log(
+      JSON.stringify({
+        log_type: "LATENCY_DEBUG",
+        client_id: clientId,
+        total_ms: tTotal.toFixed(2),
+        auth_ms: authDuration.toFixed(2),
+        limit_ms: limitDuration.toFixed(2),
+        overhead_ms: overhead.toFixed(2),
+        region: process.env.AWS_REGION || "unknown",
+        memory_mb: process.env.AWS_LAMBDA_FUNCTION_MEMORY_SIZE,
+      }),
+    );
 
     if (!allowed) {
       return callback(null, {
