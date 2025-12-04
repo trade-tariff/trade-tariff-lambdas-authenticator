@@ -14,9 +14,9 @@ const asciichart = require('asciichart'); // CLI Charting
 
   const config = {
     URL: 'https://dev.trade-tariff.service.gov.uk/uk/api/v2/headings/0104',
-    TOTAL_REQUESTS_PER_CONCURRENCY: 100,
+    TOTAL_REQUESTS_PER_CONCURRENCY: 500,
     MIN_CONCURRENCY: 1,
-    MAX_CONCURRENCY: 10,
+    MAX_CONCURRENCY: 5,
     REFILL_WAIT_SECONDS: 100,
     LIMITER_TYPES: [
       { name: 'Hybrid V2', headerValue: 'reduced-atomicity-hybrid-v2' },
@@ -112,7 +112,9 @@ const asciichart = require('asciichart'); // CLI Charting
       if (concurrency === 1) {
         console.log(chalk.bold.magenta(`\n📈 Latency Trend - ${limiter.name}`));
         const fitRaw = fitToTerminal(stats.latency_series);
-        console.log(asciichart.plot(fitRaw, { height: 6, colors: [asciichart.blue] }));
+        console.log(fitRaw.length + ' data points plotted.');
+        console.log(chalk.gray('(Y-axis: Response Time in ms, X-axis: Requests over time)'));
+        console.log(asciichart.plot(fitRaw, { height: 8, colors: [asciichart.green] }));
         console.log('\n');
       }
       // ------------------------------------------
