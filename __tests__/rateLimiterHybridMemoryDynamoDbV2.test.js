@@ -185,7 +185,7 @@ describe("applyRateLimit", () => {
     jest.advanceTimersByTime(500); // Advance time, but within 1000ms staleness
     await applyRateLimit(mockDdbClient, tableName, clientId); // Second call, should use cache
 
-    expect(mockSend).toHaveBeenCalledTimes(3); // First GetItem and set on the cache and Update to dynamodb. Second call uses cache only but refreshes async to keep in sync
+    expect(mockSend).toHaveBeenCalledTimes(2); // First GetItem and set on the cache and Update to dynamodb. Second call uses cache only
     const cached = memoryCache.get(clientId);
     expect(Math.floor(cached.tokens)).toBe(8); // 10 - 1 (first call) - 1 (second call)
   });
@@ -203,7 +203,7 @@ describe("applyRateLimit", () => {
     }); // First GetItem
 
     await applyRateLimit(mockDdbClient, tableName, clientId); // First call
-    jest.advanceTimersByTime(1500); // Advance time beyond 1000ms staleness
+    jest.advanceTimersByTime(150000); // Advance time beyond 150000ms staleness
     mockSend.mockResolvedValueOnce({
       Item: {
         tokens: { N: "9" },
@@ -303,9 +303,8 @@ describe("applyRateLimit", () => {
     expect(result.allowed).toBe(false);
     expect(result.rateLimitRemaining).toBe(0);
 
-    // The total calls should be the initial Get/Update + 9 Updates for the burst
-    // The final denied call will also trigger a sync because tokens have refilled slightly.
-    expect(mockSend).toHaveBeenCalledTimes(2 + 9 + 1);
+    // The total calls should be the initial Get/Update + 9 Updates that are purely in memory
+    expect(mockSend).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -399,13 +398,13 @@ describe("syncToDynamo", () => {
       1,
     ); // 1 retry
 
-    expect(mockSend).toHaveBeenCalledTimes(2); // Update + GetItem
+    expect(mockSend).toHaveBeenCalledTimes(3); // Update + GetItem plus 1 Retry Update
     expect(mockSend).toHaveBeenCalledWith(expect.any(UpdateItemCommand));
     expect(mockSend).toHaveBeenCalledWith(expect.any(GetItemCommand));
     expect(error).not.toHaveBeenCalled(); // No error logged for first collision
     const cached = memoryCache.get(clientId);
     expect(cached).toMatchObject({
-      tokens: 5,
+      tokens: 4,
       lastRefill: initialTime + 100,
     });
   });

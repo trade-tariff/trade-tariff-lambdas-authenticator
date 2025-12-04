@@ -1,5 +1,7 @@
 const { CognitoJwtVerifier } = require("aws-jwt-verify");
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
+const { NodeHttpHandler } = require("@smithy/node-http-handler");
+const https = require("https");
 
 const config = require("./config.json");
 
@@ -13,7 +15,7 @@ const {
   applyRateLimit: fullyAtomicRateLimit,
 } = require("./rateLimiterAtomicDynamoDb");
 const { error } = require("./logger");
-const { jwtDecode } = require("jwt-decode");
+const { performance } = require("perf_hooks");
 
 const rateLimitOptions = {
   "reduced-atomicity-hybrid-v1": reducedAtomicityHybridLimitV1,
@@ -60,9 +62,56 @@ const ERRORS = {
   }),
 };
 
+const tokenCache = new Map();
+const MAX_CACHE_SIZE = 1000;
+
+async function verifyTokenCached(token) {
+  const currentTime = Math.floor(Date.now() / 1000);
+
+  if (tokenCache.has(token)) {
+    const payload = tokenCache.get(token);
+
+    if (payload.exp > currentTime) {
+      return payload;
+    }
+
+    tokenCache.delete(token);
+  }
+
+  const payload = await verifier.verify(token);
+
+  if (tokenCache.size >= MAX_CACHE_SIZE) {
+    const firstKey = tokenCache.keys().next().value;
+    tokenCache.delete(firstKey);
+  }
+
+  tokenCache.set(token, payload);
+
+  return payload;
+}
+
 // NOTE: All of our viewer requests originate from CloudFront in the eu-west-2 region so we create the DynamoDB client in that region.
 // This reduces latency and avoids potential issues with regional endpoints.
-const ddbClient = new DynamoDBClient({ region: "eu-west-2" });
+const agent = new https.Agent({
+  keepAlive: true,
+  maxSockets: 50,
+  keepAliveMsecs: 10000,
+});
+const ddbClient = new DynamoDBClient({
+  region: "eu-west-2",
+  requestHandler: new NodeHttpHandler({
+    httpsAgent: agent,
+    connectionTimeout: 500,
+    socketTimeout: 500,
+  }),
+});
+
+// Hoist the verifier to avoid recreating it on every invocation
+const verifier = CognitoJwtVerifier.create({
+  userPoolId: USER_POOL_ID,
+  tokenUse: "access",
+  clientId: null,
+});
 
 function authorised(scopes, path) {
   const scopeList = scopes ? scopes.split(" ") : [];
@@ -92,10 +141,13 @@ function authorised(scopes, path) {
   return false;
 }
 
-async function handler(event, _context, callback) {
+async function handler(event, context, callback) {
+  const tStart = performance.now();
   const request = event.Records[0].cf.request;
   const headers = request.headers;
   const authHeader = headers["authorization"];
+
+  context.callbackWaitsForEmptyEventLoop = false;
 
   let applyRateLimit;
 
@@ -129,8 +181,10 @@ async function handler(event, _context, callback) {
   const token = authValue.split(" ")[1];
 
   try {
-    const decoded = jwtDecode(token);
-    const clientId = decoded.client_id;
+    const tAuthStart = performance.now();
+    const payload = await verifyTokenCached(token);
+    const tAuthEnd = performance.now();
+    const clientId = payload.client_id;
 
     if (!clientId) {
       return callback(null, {
@@ -140,13 +194,6 @@ async function handler(event, _context, callback) {
       });
     }
 
-    const verifier = CognitoJwtVerifier.create({
-      userPoolId: USER_POOL_ID,
-      tokenUse: "access",
-      clientId: clientId,
-    });
-
-    const payload = await verifier.verify(token);
     const scopes = payload.scope;
     const path = request.uri;
 
@@ -158,6 +205,7 @@ async function handler(event, _context, callback) {
       });
     }
 
+    const tLimitStart = performance.now();
     const {
       allowed,
       rateLimitRemaining,
@@ -165,6 +213,7 @@ async function handler(event, _context, callback) {
       rateLimitReset,
       collision,
     } = await applyRateLimit(ddbClient, DYNAMODB_TABLE, clientId);
+    const tLimitEnd = performance.now();
 
     const rateLimitHeaders = {
       "x-ratelimit-limit": [
@@ -183,6 +232,24 @@ async function handler(event, _context, callback) {
         { key: "X-RateLimit-Collision", value: "true" },
       ];
     }
+
+    const tTotal = performance.now() - tStart;
+    const authDuration = tAuthEnd - tAuthStart;
+    const limitDuration = tLimitEnd - tLimitStart;
+    const overhead = tTotal - (authDuration + limitDuration);
+
+    console.log(
+      JSON.stringify({
+        log_type: "LATENCY_DEBUG",
+        client_id: clientId,
+        total_ms: tTotal.toFixed(2),
+        auth_ms: authDuration.toFixed(2),
+        limit_ms: limitDuration.toFixed(2),
+        overhead_ms: overhead.toFixed(2),
+        region: process.env.AWS_REGION || "unknown",
+        memory_mb: process.env.AWS_LAMBDA_FUNCTION_MEMORY_SIZE,
+      }),
+    );
 
     if (!allowed) {
       return callback(null, {

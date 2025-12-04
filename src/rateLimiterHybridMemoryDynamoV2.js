@@ -13,6 +13,8 @@ const { error } = require("./logger");
 
 // In-memory cache: Map<clientId, {tokens: number, lastRefill: number, ...}>
 const memoryCache = new Map(); // Local to Lambda invocation; approximate and non-persistent
+const cacheTtlMs = 15000; // 15 seconds cache TTL
+const syncIntervalMs = 2000; // 2 seconds between syncs
 const hardMaxTokens = 2500; // Absolute maximum tokens to prevent abuse
 const hardMaxRefillRate = 2500; // Absolute maximum refill rate to prevent abuse
 const defaultRefillRate = 300; // Tokens per interval
@@ -149,10 +151,27 @@ async function syncToDynamo(
         };
         const getResult = await ddbClient.send(new GetItemCommand(getParams));
         const refreshedItem = getResult.Item || {};
+        const freshState = calculateTokenState(refreshedItem);
+
+        const tokensAfterRefill = isConsumed
+          ? Math.floor(freshState.cappedTokens - 1)
+          : Math.floor(freshState.cappedTokens);
+
         memoryCache.set(clientId, {
           ...calculateTokenState(refreshedItem),
+          tokens: tokensAfterRefill,
           lastAccess: Date.now(),
         });
+
+        // Retry the update with the fresh state and decremented retries.
+        return syncToDynamo(
+          ddbClient,
+          table,
+          clientId,
+          freshState,
+          isConsumed,
+          retries - 1,
+        );
       } else {
         error(
           "Async DynamoDB UpdateItem failed after retry due to collision.",
@@ -170,7 +189,7 @@ async function applyRateLimit(ddbClient, table, clientId) {
   let cachedItem = memoryCache.get(clientId);
 
   // Get state from DB if cache is missing or stale.
-  if (!cachedItem || currentTime - cachedItem.lastAccess > 1000) {
+  if (!cachedItem || currentTime - cachedItem.lastAccess > cacheTtlMs) {
     const getParams = {
       TableName: table,
       Key: { clientId: { S: clientId } },
@@ -224,22 +243,31 @@ async function applyRateLimit(ddbClient, table, clientId) {
 
   // If allowed (or if tokens have refilled), update cache and trigger async DB sync.
   const hasRefilled = cappedTokens > cachedItem.tokens;
+
   if (isAllowed || hasRefilled) {
     const newTokens = isAllowed ? cappedTokens - 1 : cappedTokens;
-    // Update cache with the new consumed value.
-    memoryCache.set(clientId, {
-      ...cachedItem,
-      tokens: newTokens,
-      lastRefill: currentTime,
-      lastAccess: currentTime,
-    });
 
-    // Pass the pre-consumption state to syncToDynamo for the conditional check.
-    syncToDynamo(ddbClient, table, clientId, cachedItem, isAllowed).catch(
-      (err) => {
-        error("Sync to Dynamo failed:", err);
-      },
-    );
+    cachedItem.tokens = newTokens;
+    cachedItem.lastRefill = currentTime;
+    cachedItem.lastAccess = currentTime;
+
+    const lastSyncTime = cachedItem.lastSync || 0;
+
+    if (currentTime - lastSyncTime > syncIntervalMs) {
+      // Update the timestamp so we don't sync again immediately
+      cachedItem.lastSync = currentTime;
+      memoryCache.set(clientId, cachedItem);
+
+      // Fire and forget (with retry logic)
+      syncToDynamo(ddbClient, table, clientId, cachedItem, isAllowed).catch(
+        (err) => {
+          error("Sync to Dynamo failed:", err);
+        },
+      );
+    } else {
+      // Just update the memory cache map without firing DB call
+      memoryCache.set(clientId, cachedItem);
+    }
   }
 
   return rateLimitResult;

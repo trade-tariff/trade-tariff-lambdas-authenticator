@@ -5,19 +5,22 @@ const axios = require('axios');
 const { performance } = require('perf_hooks');
 const { table } = require('table');
 const { v4: uuidv4 } = require('uuid');
+const asciichart = require('asciichart'); // CLI Charting
 
 (async () => {
+  // Dynamic imports for ESM/CJS compatibility
   const { default: ora } = await import('ora');
   const { default: chalk } = await import('chalk');
+
   const config = {
     URL: 'https://dev.trade-tariff.service.gov.uk/uk/api/v2/headings/0104',
-    TOTAL_REQUESTS_PER_CONCURRENCY: 100,
+    TOTAL_REQUESTS_PER_CONCURRENCY: 500,
     MIN_CONCURRENCY: 1,
-    MAX_CONCURRENCY: 10,
-    REFILL_WAIT_SECONDS: 130,
+    MAX_CONCURRENCY: 5,
+    REFILL_WAIT_SECONDS: 100,
     LIMITER_TYPES: [
       { name: 'Hybrid V2', headerValue: 'reduced-atomicity-hybrid-v2' },
-      { name: 'Hybrid V1', headerValue: 'reduced-atomicity-hybrid-v1' },
+      // { name: 'Hybrid V1', headerValue: 'reduced-atomicity-hybrid-v1' },
       // { name: 'Atomic', headerValue: 'fully-atomic-dynamo' },
     ],
   };
@@ -34,6 +37,7 @@ const { v4: uuidv4 } = require('uuid');
 
     const allResults = [];
     const allErrorSamples = [];
+
     for (const [index, limiter] of config.LIMITER_TYPES.entries()) {
       if (index > 0) {
         await waitForRefill();
@@ -43,7 +47,7 @@ const { v4: uuidv4 } = require('uuid');
       allErrorSamples.push(...errorSamples);
     }
 
-    console.log(chalk.bold.yellow('\n📊 ABA Collision Test Results:'));
+    console.log(chalk.bold.yellow('\n📊 Final Results Summary:'));
     printResultsTable(allResults);
 
     if (allErrorSamples.length > 0) {
@@ -52,7 +56,144 @@ const { v4: uuidv4 } = require('uuid');
     }
   }
 
+  // --- Core Testing Logic ---
+
+  async function runTestsForLimiter(limiter, baseHeaders) {
+    console.log(chalk.bold.cyan(`\n🔥 Stress Testing: ${limiter.name}`));
+    const headers = { ...baseHeaders, 'x-rate-limiter': limiter.headerValue };
+    const results = [];
+    const errorSamples = [];
+
+    for (let concurrency = config.MIN_CONCURRENCY; concurrency <= config.MAX_CONCURRENCY; concurrency++) {
+      const spinner = ora(`Running with concurrency ${concurrency}...`).start();
+
+      const stats = {
+        success: 0,
+        collision_429: 0,
+        normal_429: 0,
+        other_error: 0,
+        allowed_times: [],
+        denied_times: [],
+        latency_series: [] // Ordered list of latencies for plotting
+      };
+
+      const totalRequests = config.TOTAL_REQUESTS_PER_CONCURRENCY;
+      const chunks = Math.ceil(totalRequests / concurrency);
+
+      for (let i = 0; i < chunks; i++) {
+        const promises = [];
+        for (let j = 0; j < concurrency && (i * concurrency + j) < totalRequests; j++) {
+          promises.push(makeRequest(headers));
+        }
+        const chunkResults = await Promise.all(promises);
+
+        chunkResults.forEach(result => {
+          stats.latency_series.push(result.time); // Capture for chart
+
+          if (result.is_other_error) {
+            if (stats.other_error < 5) { // Sample up to 5 errors
+              errorSamples.push({ limiterName: limiter.name, concurrency, message: result.errorMessage });
+            }
+            stats.other_error++;
+          } else if (result.is_429) {
+            stats.denied_times.push(result.time);
+            if (result.collision) stats.collision_429++;
+            else stats.normal_429++;
+          } else {
+            stats.allowed_times.push(result.time);
+            stats.success++;
+          }
+        });
+      }
+
+      spinner.stop();
+
+      // --- VISUALIZATION (Concurrency 1 Only) ---
+      if (concurrency === 1) {
+        console.log(chalk.bold.magenta(`\n📈 Latency Trend - ${limiter.name}`));
+        const fitRaw = fitToTerminal(stats.latency_series);
+        console.log(fitRaw.length + ' data points plotted.');
+        console.log(chalk.gray('(Y-axis: Response Time in ms, X-axis: Requests over time)'));
+        console.log(asciichart.plot(fitRaw, { height: 8, colors: [asciichart.green] }));
+        console.log('\n');
+      }
+      // ------------------------------------------
+
+      const avgAllowedTime = stats.allowed_times.reduce((a, b) => a + b, 0) / (stats.allowed_times.length || 1);
+      const avgDeniedTime = stats.denied_times.reduce((a, b) => a + b, 0) / (stats.denied_times.length || 1);
+
+      // Calculate P90
+      const p90Allowed = calculatePercentile(stats.allowed_times, 90);
+      const p90Denied = calculatePercentile(stats.denied_times, 90);
+
+      results.push({
+        limiterName: limiter.name,
+        concurrency,
+        allowedPct: (stats.success / totalRequests) * 100,
+        avgAllowedTime,
+        p90Allowed,
+        avgDeniedTime,
+        p90Denied,
+        deniedCount: stats.denied_times.length,
+        collision429Pct: (stats.collision_429 / totalRequests) * 100,
+        normal429Pct: (stats.normal_429 / totalRequests) * 100,
+        errorPct: (stats.other_error / totalRequests) * 100,
+      });
+    }
+    return { results, errorSamples };
+  }
+
   // --- Helper Functions ---
+
+  async function makeRequest(headers) {
+    const startTime = performance.now();
+    try {
+      const response = await axios.head(config.URL, { headers });
+      const collision = response.headers['x-ratelimit-collision']?.toLowerCase() === 'true';
+      return { time: performance.now() - startTime, is_429: false, collision, is_other_error: false };
+    } catch (error) {
+      const time = performance.now() - startTime;
+      if (error.response && error.response.status === 429) {
+        const collision = error.response.headers['x-ratelimit-collision']?.toLowerCase() === 'true';
+        return { time, is_429: true, collision, is_other_error: false };
+      }
+      return { time, is_429: false, collision: false, is_other_error: true, errorMessage: error.message };
+    }
+  }
+
+  /**
+   * Downsamples data to fit within the terminal width.
+   * Uses Math.max to preserve latency spikes (cold starts) in the visualization.
+   */
+  function fitToTerminal(data) {
+    // Get terminal width (default to 80 if unknown), subtract 15 for Y-axis labels/padding
+    const terminalWidth = (process.stdout.columns || 80) - 15;
+
+    if (data.length <= terminalWidth) return data;
+
+    const sampled = [];
+    const bucketSize = data.length / terminalWidth;
+
+    for (let i = 0; i < terminalWidth; i++) {
+      // Calculate slice boundaries
+      const start = Math.floor(i * bucketSize);
+      const end = Math.min(Math.floor((i + 1) * bucketSize), data.length);
+
+      const slice = data.slice(start, end);
+      if (slice.length > 0) {
+        // Use MAX to ensure the Cold Start spike is visible even in a large bucket
+        sampled.push(Math.max(...slice));
+      }
+    }
+    return sampled;
+  }
+
+  function calculatePercentile(data, percentile) {
+    if (data.length === 0) return 0;
+    const sorted = [...data].sort((a, b) => a - b);
+    const index = Math.ceil(percentile / 100 * sorted.length) - 1;
+    return sorted[index];
+  }
 
   async function getAuthToken() {
     const spinner = ora('Fetching authentication token...').start();
@@ -95,97 +236,21 @@ const { v4: uuidv4 } = require('uuid');
     spinner.succeed('Token bucket refilled.');
   }
 
-  async function runTestsForLimiter(limiter, baseHeaders) {
-    console.log(chalk.bold.cyan(`\n🔥 Stress Testing: ${limiter.name}`));
-    const headers = { ...baseHeaders, 'x-rate-limiter': limiter.headerValue };
-    const results = [];
-    const errorSamples = [];
-
-    for (let concurrency = config.MIN_CONCURRENCY; concurrency <= config.MAX_CONCURRENCY; concurrency++) {
-      const spinner = ora(`Running with concurrency ${concurrency}...`).start();
-      const stats = {
-        success: 0,
-        collision_429: 0,
-        normal_429: 0,
-        other_error: 0,
-        allowed_times: [],
-        denied_times: [],
-      };
-      const totalRequests = config.TOTAL_REQUESTS_PER_CONCURRENCY;
-      const chunks = Math.ceil(totalRequests / concurrency);
-
-      for (let i = 0; i < chunks; i++) {
-        const promises = [];
-        for (let j = 0; j < concurrency && (i * concurrency + j) < totalRequests; j++) {
-          promises.push(makeRequest(headers));
-        }
-        const chunkResults = await Promise.all(promises);
-        chunkResults.forEach(result => {
-          if (result.is_other_error) {
-            if (stats.other_error < 10) { // Sample up to 10 errors
-              errorSamples.push({ limiterName: limiter.name, concurrency, message: result.errorMessage });
-            }
-            stats.other_error++;
-          } else if (result.is_429) {
-            stats.denied_times.push(result.time);
-            if (result.collision) stats.collision_429++;
-            else stats.normal_429++;
-          } else {
-            stats.allowed_times.push(result.time);
-            stats.success++;
-          }
-        });
-      }
-
-      spinner.stop();
-      const avgAllowedTime = stats.allowed_times.reduce((a, b) => a + b, 0) / (stats.allowed_times.length || 1);
-      const avgDeniedTime = stats.denied_times.reduce((a, b) => a + b, 0) / (stats.denied_times.length || 1);
-
-      results.push({
-        limiterName: limiter.name,
-        concurrency,
-        allowedPct: (stats.success / totalRequests) * 100,
-        avgAllowedTime,
-        avgDeniedTime,
-        deniedCount: stats.denied_times.length,
-        collision429Pct: (stats.collision_429 / totalRequests) * 100,
-        normal429Pct: (stats.normal_429 / totalRequests) * 100,
-        errorPct: (stats.other_error / totalRequests) * 100,
-      });
-    }
-    return { results, errorSamples };
-  }
-
-  async function makeRequest(headers) {
-    const startTime = performance.now();
-    try {
-      const response = await axios.head(config.URL, { headers });
-      const collision = response.headers['x-ratelimit-collision']?.toLowerCase() === 'true';
-      return { time: performance.now() - startTime, is_429: false, collision, is_other_error: false };
-    } catch (error) {
-      const time = performance.now() - startTime;
-      if (error.response && error.response.status === 429) {
-        const collision = error.response.headers['x-ratelimit-collision']?.toLowerCase() === 'true';
-        return { time, is_429: true, collision, is_other_error: false };
-      }
-      return { time, is_429: false, collision: false, is_other_error: true, errorMessage: error.message };
-    }
-  }
-
   function printResultsTable(results) {
     const header = [
-      'Limiter', 'Concurrency', 'Allowed %', 'Avg Time (Allow)', 'Avg Time (Deny)', '429 Collision %', '429 Normal %', 'Error %'
+      'Limiter', 'Conc', 'Allowed %', 'Avg(Ok)', 'P90(Ok)', 'Avg(429)', 'P90(429)', 'Collision %', 'Error %'
     ].map(h => chalk.bold.white(h));
 
     const tableData = results.map(r => [
       chalk.cyan(r.limiterName),
       r.concurrency,
-      `${r.allowedPct.toFixed(2)}%`,
-      `${r.avgAllowedTime.toFixed(2)} ms`,
-      chalk[r.deniedCount > 0 ? 'yellow' : 'gray'](`${r.avgDeniedTime.toFixed(2)} ms`),
-      chalk[r.collision429Pct > 0 ? 'red' : 'green'](`${r.collision429Pct.toFixed(2)}%`),
-      `${r.normal429Pct.toFixed(2)}%`,
-      chalk[r.errorPct > 0 ? 'yellow' : 'white'](`${r.errorPct.toFixed(2)}%`),
+      `${r.allowedPct.toFixed(0)}%`,
+      `${r.avgAllowedTime.toFixed(0)}ms`,
+      chalk.magenta(`${r.p90Allowed.toFixed(0)}ms`), // P90 Column
+      chalk[r.deniedCount > 0 ? 'yellow' : 'gray'](`${r.avgDeniedTime.toFixed(0)}ms`),
+      chalk[r.deniedCount > 0 ? 'yellow' : 'gray'](`${r.p90Denied.toFixed(0)}ms`), // P90 Column
+      chalk[r.collision429Pct > 0 ? 'red' : 'green'](`${r.collision429Pct.toFixed(0)}%`),
+      chalk[r.errorPct > 0 ? 'yellow' : 'white'](`${r.errorPct.toFixed(0)}%`),
     ]);
 
     console.log(table([header, ...tableData]));
