@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  AWS_REGION: us-east-1
+  AWS_REGION: eu-west-2
   STAGE: production
 
 jobs:
@@ -29,10 +29,8 @@ jobs:
           role-to-assume: arn:aws:iam::382373577178:role/GithubActions-Serverless-Lambda-Role
           aws-region: ${{ env.AWS_REGION }}
 
-      - run: yarn global add serverless@^3
+      - run: yarn global add serverless@3.0
 
-      - run: yarn install --frozen-lockfile --production # NOTE: To keep the lambda package size down, we only install production dependencies
+      - run: yarn install --frozen-lockfile --production
 
       - run: make deploy-${{ env.STAGE }}
-
-      - run: make publish-${{ env.STAGE }}

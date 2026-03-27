@@ -1,20 +1,17 @@
 {
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.936.0",
-    "@smithy/node-http-handler": "^4.4.5",
     "aws-jwt-verify": "^5.1.1"
   },
   "devDependencies": {
-    "asciichart": "^1.5.25",
-    "axios": "^1.6.8",
-    "chalk": "^5.3.0",
-    "eslint": "^9.39.1",
-    "jest": "^30.2.0",
-    "ora": "^9.0.0",
-    "table": "^6.8.1",
-    "uuid": "^13.0.0"
+    "baseline-browser-mapping": "^2.10.11",
+    "eslint": "^10.1.0",
+    "jest": "^30.3.0"
   },
+  "license": "MIT",
   "name": "auth",
+  "resolutions": {
+    "baseline-browser-mapping": "2.10.11"
+  },
   "scripts": {
     "test": "jest"
   }

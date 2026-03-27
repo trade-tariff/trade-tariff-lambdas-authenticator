@@ -1,6 +1,6 @@
 const config = require("./config.json");
 
-const LOG_LEVEL = config.LOG_LEVEL || "DEBUG";
+const LOG_LEVEL = process.env.LOG_LEVEL || config.LOG_LEVEL || "DEBUG";
 
 const LEVELS = {
   ERROR: 0,
@@ -45,9 +45,9 @@ function error(message, err) {
   if (!isErrorObject) {
     log("ERROR", message, { error: err });
     return;
-  } else {
-    log("ERROR", message, { error: err.message, stack: err.stack });
   }
+
+  log("ERROR", message, { error: err.message, stack: err.stack });
 }
 
 module.exports = {
