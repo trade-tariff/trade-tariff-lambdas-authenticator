@@ -1,11 +1,5 @@
 {
   "SCOPES": {
-    "fpo/read": {
-      "allowedPaths": ["/fpo-code-search"]
-    },
-    "spimm/read": {
-      "allowedPaths": ["/xi/api/green_lanes"]
-    },
     "tariff/read": {
       "allowedPaths": ["/uk/api", "/xi/api"],
       "excludedPaths": ["green_lanes", "user", "admin", "notifications"]
