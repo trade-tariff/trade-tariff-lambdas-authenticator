@@ -4,7 +4,7 @@ const config = require("./config.json");
 const { info, error } = require("./logger");
 
 const SCOPES = config.SCOPES;
-const USER_POOL_ID = process.env.USER_POOL_ID || config.USER_POOL_ID;
+const USER_POOL_ID = process.env.USER_POOL_ID;
 
 const tokenCache = new Map();
 const MAX_CACHE_SIZE = 1000;
