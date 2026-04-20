@@ -8,5 +8,6 @@
       "allowedPaths": ["/uk/api", "/xi/api", "/uk/admin", "/xi/admin"],
       "excludedPaths": ["/xi/api/green_lanes"]
     }
-  }
+  },
+  "TOKEN_CACHE_TTL_SECONDS": 150
 }

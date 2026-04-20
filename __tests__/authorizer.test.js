@@ -48,6 +48,10 @@ describe("authorizer authorizer", () => {
     });
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it("rejects requests without an Authorization header and logs the reason", async () => {
     const { handler, info } = loadHandler();
 
@@ -180,5 +184,49 @@ describe("authorizer authorizer", () => {
         method: "GET",
       }),
     );
+  });
+
+  it("reuses a cached token payload within the configured cache expiry", async () => {
+    jest.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    const { handler } = loadHandler();
+    const event = createEvent({ authorization: "Bearer cached-token" });
+
+    await handler(event);
+
+    Date.now.mockReturnValue(1_700_000_149_000);
+    await handler(event);
+
+    expect(mockVerify).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-verifies a cached token payload after the configured cache expiry", async () => {
+    jest.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    const { handler } = loadHandler();
+    const event = createEvent({ authorization: "Bearer expired-cache-token" });
+
+    await handler(event);
+
+    Date.now.mockReturnValue(1_700_000_151_000);
+    await handler(event);
+
+    expect(mockVerify).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-verifies a cached token payload when the JWT expiry is reached first", async () => {
+    jest.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    mockVerify.mockResolvedValue({
+      client_id: "test-client",
+      scope: "tariff/read",
+      exp: 1_700_000_010,
+    });
+    const { handler } = loadHandler();
+    const event = createEvent({ authorization: "Bearer jwt-expiry-token" });
+
+    await handler(event);
+
+    Date.now.mockReturnValue(1_700_000_011_000);
+    await handler(event);
+
+    expect(mockVerify).toHaveBeenCalledTimes(2);
   });
 });

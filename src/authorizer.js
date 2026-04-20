@@ -8,6 +8,7 @@ const USER_POOL_ID = process.env.USER_POOL_ID;
 
 const tokenCache = new Map();
 const MAX_CACHE_SIZE = 1000;
+const TOKEN_CACHE_TTL_SECONDS = Number(config.TOKEN_CACHE_TTL_SECONDS ?? 150);
 
 const verifier = CognitoJwtVerifier.create({
   userPoolId: USER_POOL_ID,
@@ -19,9 +20,12 @@ async function verifyTokenCached(token) {
   const currentTime = Math.floor(Date.now() / 1000);
 
   if (tokenCache.has(token)) {
-    const payload = tokenCache.get(token);
+    const { payload, expiresAt } = tokenCache.get(token);
 
-    if (!payload.exp || payload.exp > currentTime) {
+    if (
+      expiresAt > currentTime &&
+      (!payload.exp || payload.exp > currentTime)
+    ) {
       return payload;
     }
 
@@ -35,7 +39,10 @@ async function verifyTokenCached(token) {
     tokenCache.delete(firstKey);
   }
 
-  tokenCache.set(token, payload);
+  tokenCache.set(token, {
+    payload,
+    expiresAt: currentTime + TOKEN_CACHE_TTL_SECONDS,
+  });
 
   return payload;
 }
