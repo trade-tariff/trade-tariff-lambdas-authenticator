@@ -2,13 +2,13 @@ name: Close stale pull requests
 
 on:
   schedule:
-    - cron: '0 6 * * 1'
+    - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
       stale_days:
         description: Days without pull request activity before closure
         required: false
-        default: '14'
+        default: "14"
       keep_label:
         description: Label exempting a pull request from closure
         required: false
@@ -16,11 +16,11 @@ on:
       dry_run:
         description: Dry run only (true/false)
         required: false
-        default: 'true'
+        default: "true"
         type: choice
         options:
-          - 'true'
-          - 'false'
+          - "true"
+          - "false"
 
 permissions:
   contents: read
