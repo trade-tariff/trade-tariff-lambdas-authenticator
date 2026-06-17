@@ -950,10 +950,10 @@ argparse@^1.0.7:
   dependencies:
     sprintf-js "~1.0.2"
 
-aws-jwt-verify@^5.1.1:
-  version "5.1.1"
-  resolved "https://registry.yarnpkg.com/aws-jwt-verify/-/aws-jwt-verify-5.1.1.tgz#a39697e1b7551a14a0fa0fd00df07b9b83e1eb69"
-  integrity sha512-j6whGdGJmQ27agk4ijY8RPv6itb8JLb7SCJ86fEnneTcSBrpxuwL8kLq6y5WVH95aIknyAloEqAsaOLS1J8ITQ==
+aws-jwt-verify@^5.2.1:
+  version "5.2.1"
+  resolved "https://registry.yarnpkg.com/aws-jwt-verify/-/aws-jwt-verify-5.2.1.tgz#d96e529a4a87ad96d39df09ab3d334b615fe40e0"
+  integrity sha512-J+buA4M+qvQDk58WXFBLkDodkEX3DDL1ac5XFQPW3opxAsaLXYu5hYnlSHsaBRDBUXBAn695kE/cw/mdyJKwJg==
 
 babel-jest@30.3.0:
   version "30.3.0"
