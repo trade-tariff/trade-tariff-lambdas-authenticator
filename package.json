@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "aws-jwt-verify": "^5.1.1"
+    "aws-jwt-verify": "^5.2.1"
   },
   "devDependencies": {
     "baseline-browser-mapping": "^2.10.35",
