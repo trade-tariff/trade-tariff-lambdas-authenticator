@@ -3,14 +3,14 @@
     "aws-jwt-verify": "^5.2.1"
   },
   "devDependencies": {
-    "baseline-browser-mapping": "^2.10.35",
+    "baseline-browser-mapping": "^2.10.37",
     "eslint": "^10.5.0",
     "jest": "^30.4.2"
   },
   "license": "MIT",
   "name": "auth",
   "resolutions": {
-    "baseline-browser-mapping": "2.10.35"
+    "baseline-browser-mapping": "2.10.37"
   },
   "scripts": {
     "test": "jest"
