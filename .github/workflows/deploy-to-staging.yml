@@ -25,7 +25,7 @@ jobs:
         with:
           cache: yarn
 
-      - uses: aws-actions/configure-aws-credentials@v6.2.0
+      - uses: aws-actions/configure-aws-credentials@v6.2.1
         with:
           role-to-assume: arn:aws:iam::451934005581:role/GithubActions-Serverless-Lambda-Role
           aws-region: ${{ env.AWS_REGION }}
