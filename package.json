@@ -4,7 +4,7 @@
   },
   "devDependencies": {
     "baseline-browser-mapping": "^2.10.40",
-    "eslint": "^10.5.0",
+    "eslint": "^10.6.0",
     "jest": "^30.4.2"
   },
   "license": "MIT",
