@@ -124,6 +124,7 @@
 
               exec ${preCommitCheck.config.package}/bin/pre-commit "$@"
             ''}/bin:$PATH
+            export PATH="$PWD/node_modules/.bin:$PATH"
           '';
 
           buildInputs =
@@ -131,7 +132,6 @@
             ++ (with pkgs; [
               nodejs_latest
               yarn
-              serverless
             ]);
         };
       }
