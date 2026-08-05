@@ -4,7 +4,7 @@
   },
   "devDependencies": {
     "baseline-browser-mapping": "^2.11.0",
-    "eslint": "^10.7.0",
+    "eslint": "^10.8.0",
     "jest": "^30.4.2",
     "serverless": "3.40.0"
   },
