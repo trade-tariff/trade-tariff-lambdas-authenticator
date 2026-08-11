@@ -186,6 +186,93 @@ describe("authorizer authorizer", () => {
     );
   });
 
+  it("denies a tariff/read token on the categorisation path", async () => {
+    mockVerify.mockResolvedValue({
+      client_id: "test-client",
+      scope: "tariff/read",
+    });
+    const { handler } = loadHandler();
+    const event = createEvent({
+      authorization: "Bearer token",
+      path: "/xi/api/categorisation/themes",
+      methodArn:
+        "arn:aws:execute-api:eu-west-2:123456789012:apiid/development/GET/xi/api/categorisation/themes",
+    });
+
+    await expect(handler(event)).resolves.toEqual(
+      expect.objectContaining({
+        policyDocument: expect.objectContaining({
+          Statement: [expect.objectContaining({ Effect: "Deny" })],
+        }),
+      }),
+    );
+  });
+
+  it("denies a tariff/write token on the categorisation path", async () => {
+    mockVerify.mockResolvedValue({
+      client_id: "test-client",
+      scope: "tariff/write",
+    });
+    const { handler } = loadHandler();
+    const event = createEvent({
+      authorization: "Bearer token",
+      path: "/xi/api/categorisation/themes",
+      methodArn:
+        "arn:aws:execute-api:eu-west-2:123456789012:apiid/development/GET/xi/api/categorisation/themes",
+    });
+
+    await expect(handler(event)).resolves.toEqual(
+      expect.objectContaining({
+        policyDocument: expect.objectContaining({
+          Statement: [expect.objectContaining({ Effect: "Deny" })],
+        }),
+      }),
+    );
+  });
+
+  it("allows a tariff/categorisation token on the categorisation path", async () => {
+    mockVerify.mockResolvedValue({
+      client_id: "test-client",
+      scope: "tariff/categorisation",
+    });
+    const { handler } = loadHandler();
+    const event = createEvent({
+      authorization: "Bearer token",
+      path: "/xi/api/categorisation/themes",
+      methodArn:
+        "arn:aws:execute-api:eu-west-2:123456789012:apiid/development/GET/xi/api/categorisation/themes",
+    });
+
+    await expect(handler(event)).resolves.toEqual(
+      expect.objectContaining({
+        usageIdentifierKey: "test-client",
+        policyDocument: expect.objectContaining({
+          Statement: [expect.objectContaining({ Effect: "Allow" })],
+        }),
+      }),
+    );
+  });
+
+  it("denies a tariff/categorisation token outside the categorisation path", async () => {
+    mockVerify.mockResolvedValue({
+      client_id: "test-client",
+      scope: "tariff/categorisation",
+    });
+    const { handler } = loadHandler();
+    const event = createEvent({
+      authorization: "Bearer token",
+      path: "/xi/api/commodities",
+    });
+
+    await expect(handler(event)).resolves.toEqual(
+      expect.objectContaining({
+        policyDocument: expect.objectContaining({
+          Statement: [expect.objectContaining({ Effect: "Deny" })],
+        }),
+      }),
+    );
+  });
+
   it("reuses a cached token payload within the configured cache expiry", async () => {
     jest.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     const { handler } = loadHandler();
