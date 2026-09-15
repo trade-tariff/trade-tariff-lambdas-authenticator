@@ -35,6 +35,8 @@ deploy() {
   DEPLOYMENT_BUCKET="$bucket" \
   USER_POOL_ID="$user_pool_id" \
   LOG_LEVEL="$log_level" \
+  MCP_SECRET_TOKEN="${MCP_SECRET_TOKEN:-}" \
+  MCP_USAGE_KEY="${MCP_USAGE_KEY:-}" \
     serverless deploy
 }
 
