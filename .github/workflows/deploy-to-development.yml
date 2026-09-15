@@ -31,6 +31,7 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest
+    environment: development
 
     env:
       MCP_SECRET_TOKEN: ${{ secrets.MCP_SECRET_TOKEN }}
