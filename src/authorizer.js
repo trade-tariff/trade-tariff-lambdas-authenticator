@@ -1,3 +1,5 @@
+const crypto = require("node:crypto");
+
 const { CognitoJwtVerifier } = require("aws-jwt-verify");
 
 const config = require("./config.json");
@@ -5,6 +7,8 @@ const { info, error } = require("./logger");
 
 const SCOPES = config.SCOPES;
 const USER_POOL_ID = process.env.USER_POOL_ID;
+const MCP_SECRET_TOKEN = process.env.MCP_SECRET_TOKEN;
+const MCP_USAGE_KEY = process.env.MCP_USAGE_KEY;
 
 const tokenCache = new Map();
 const MAX_CACHE_SIZE = 1000;
@@ -79,7 +83,7 @@ function authorised(scopes, path) {
   return false;
 }
 
-function buildPolicy({ principalId, effect, resource, clientId }) {
+function buildPolicy({ principalId, effect, resource, clientId, mcp }) {
   return {
     principalId,
     policyDocument: {
@@ -95,7 +99,7 @@ function buildPolicy({ principalId, effect, resource, clientId }) {
     context: {
       client_id: clientId,
     },
-    usageIdentifierKey: clientId,
+    usageIdentifierKey: mcp ? MCP_USAGE_KEY : clientId,
   };
 }
 
@@ -103,13 +107,31 @@ function extractAuthorizationHeader(headers = {}) {
   return headers.Authorization || headers.authorization;
 }
 
-function logDecision({ decision, reason, clientId, path, method }) {
+// MCP traffic shares one 3,000rpm usage plan instead of consuming the end
+// user's ~750rpm per-key plan (HMRC-2699). The token only selects the plan:
+// the JWT is still verified and scope-checked, and the real client_id is still
+// returned as the principal.
+function isMcpRequest(headers = {}) {
+  if (!MCP_SECRET_TOKEN || !MCP_USAGE_KEY) return false;
+
+  const presented = headers["x-mcp-token"] || headers["X-Mcp-Token"];
+  if (!presented) return false;
+
+  const presentedBytes = Buffer.from(presented);
+  const expectedBytes = Buffer.from(MCP_SECRET_TOKEN);
+  if (presentedBytes.length !== expectedBytes.length) return false;
+
+  return crypto.timingSafeEqual(presentedBytes, expectedBytes);
+}
+
+function logDecision({ decision, reason, clientId, path, method, mcp }) {
   info("authorizer decision", {
     decision,
     reason,
     client_id: clientId,
     path,
     method,
+    mcp,
   });
 }
 
@@ -155,12 +177,14 @@ async function handler(event) {
     }
 
     const effect = authorised(payload.scope, path) ? "Allow" : "Deny";
+    const mcp = isMcpRequest(event.headers);
 
     logDecision({
       decision: effect.toLowerCase(),
       clientId,
       path,
       method,
+      mcp,
     });
 
     return buildPolicy({
@@ -168,6 +192,7 @@ async function handler(event) {
       effect,
       resource: event.methodArn,
       clientId,
+      mcp,
     });
   } catch (err) {
     if (err.message === "Unauthorized") {

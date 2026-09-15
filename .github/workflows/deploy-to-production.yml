@@ -17,6 +17,12 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: production
+
+    env:
+      MCP_SECRET_TOKEN: ${{ secrets.MCP_SECRET_TOKEN }}
+      MCP_USAGE_KEY: ${{ secrets.MCP_USAGE_KEY }}
+
     steps:
       - uses: actions/checkout@v7.0.1
 
