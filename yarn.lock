@@ -2540,12 +2540,12 @@ semver@^7.5.3, semver@^7.5.4, semver@^7.7.2:
   resolved "https://registry.yarnpkg.com/semver/-/semver-7.7.3.tgz#4b5f4143d007633a8dc671cd0a6ef9147b8bb946"
   integrity sha512-SdsKMrI9TdgjdweUSR9MweHA4EJ8YxHn8DFaDisvhVlUOe4BF1tLD7GAj0lIqWVl+dPb/rExr0Btby5loQm20Q==
 
-serverless@4.41.1:
-  version "4.41.1"
-  resolved "https://registry.yarnpkg.com/serverless/-/serverless-4.41.1.tgz#3e426805f33bae3fb071db9bbf1f8e1c0bc808c1"
-  integrity sha512-vjnXUv8RDgzpaVZnrNRIBui9C2injCn6xWt5toUHNvLPPmvy5ECZuS38AENbBTw+2a8WTfmmWz7ob24vi7TJrA==
+serverless@4.42.0:
+  version "4.42.0"
+  resolved "https://registry.yarnpkg.com/serverless/-/serverless-4.42.0.tgz#04200547da5eaf166fedc703b72fcee97f67f24a"
+  integrity sha512-auc1KKlWN1VEkA6bljjWIp3NFISnTRnhbRr69P/Z0lF1WJxxHrsUZfeWk9tPxeOWvfjCTjDZU7Nw33dtYw8MJw==
   dependencies:
-    undici "6.28.0"
+    undici "6.28.1"
 
 shebang-command@^2.0.0:
   version "2.0.0"
@@ -2714,10 +2714,10 @@ undici-types@~7.16.0:
   resolved "https://registry.yarnpkg.com/undici-types/-/undici-types-7.16.0.tgz#ffccdff36aea4884cbfce9a750a0580224f58a46"
   integrity sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==
 
-undici@6.28.0:
-  version "6.28.0"
-  resolved "https://registry.yarnpkg.com/undici/-/undici-6.28.0.tgz#9f0e385744fef5021d6596c5bccd783f61193c1c"
-  integrity sha512-LIY910g9TI13YS95lrMFrs8Rm/u/irgHeTWoKCoteeJ04CUJ92eEfj0rVn+7VKMPBpUPiUoBKfhNyLI23EE/KA==
+undici@6.28.1:
+  version "6.28.1"
+  resolved "https://registry.yarnpkg.com/undici/-/undici-6.28.1.tgz#aa9d2c44aef3840bef80216f2a50f337543a3fbd"
+  integrity sha512-zWpdTVD54H48CIybL0rWQ3ukpb9d23wM7eH5RtfdmeP70cWHNjtfo7P4vZX+5CoDcO53J4Pu5uXp7lNfjc6DRA==
 
 unrs-resolver@^1.12.1:
   version "1.12.2"
