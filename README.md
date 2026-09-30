@@ -32,14 +32,16 @@ attribution is unaffected.
 
 | Variable | Contents |
 |---|---|
-| `MCP_SECRET_TOKEN` | Shared secret the MCP server sends in `X-Mcp-Token`. Must match `TF_VAR_waf_mcp_secret_token` in the terraform repo and `MCP_SECRET_TOKEN` in the `mcp-configuration` secret. |
-| `MCP_USAGE_KEY` | Value of the `mcp-<env>` API Gateway key. Must match `TF_VAR_mcp_usage_plan_key` in the terraform repo. |
+| `MCP_SECRET_TOKEN` | Shared secret the MCP server sends in `X-Mcp-Token`. |
+| `MCP_USAGE_KEY` | Value of the `mcp-<env>` API Gateway key. |
 
-Both are supplied from GitHub Actions secrets, scoped per environment: each deploy job declares
-`environment: development|staging|production`, so each stage resolves its own values. This matches how
-the terraform repo scopes `TF_VAR_mcp_usage_plan_key`, and the two repos' values must agree
-environment by environment — a mismatch means API Gateway rejects every MCP request in that
-environment with a 403, because an unknown usage key is refused outright rather than falling back to
-the caller's own plan.
+Terraform (`trade-tariff-platform-aws-terraform`) generates both values and stores them in the
+`mcp-shared-credentials` secret in each AWS account. `.github/bin/deploy` reads that secret when it
+deploys, so the values always match the API Gateway key and the WAF rule. There are no GitHub secrets
+for MCP.
+
+If the secret has no value (`mcp_enabled` is `false` for that environment), the deploy sets both
+variables to empty. Any other error when it reads the secret, or a missing key in it, stops the
+deploy.
 
 If either variable is unset the swap is disabled and all traffic uses per-user plans.
