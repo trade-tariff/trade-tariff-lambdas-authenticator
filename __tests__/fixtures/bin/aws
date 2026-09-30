@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Fake aws CLI for __tests__/deploy.test.js. FAKE_AWS_MODE selects the answer
+# to `aws secretsmanager get-secret-value`.
+case "$FAKE_AWS_MODE" in
+  value)
+    echo '{"MCP_SECRET_TOKEN":"token-from-secret","MCP_USAGE_KEY":"key-from-secret","MCP_RATE_LIMIT_RPM":3000}'
+    ;;
+  empty)
+    echo '{"MCP_SECRET_TOKEN":"","MCP_USAGE_KEY":"","MCP_RATE_LIMIT_RPM":3000}'
+    ;;
+  missing_key)
+    echo '{"MCP_SECRET_TOKEN":"token-from-secret"}'
+    ;;
+  no_value)
+    echo "An error occurred (ResourceNotFoundException) when calling the GetSecretValue operation: Secrets Manager can't find the specified secret value for staging label: AWSCURRENT" >&2
+    exit 254
+    ;;
+  denied)
+    echo "An error occurred (AccessDeniedException) when calling the GetSecretValue operation: denied" >&2
+    exit 254
+    ;;
+  *)
+    echo "fake aws: unknown FAKE_AWS_MODE '$FAKE_AWS_MODE'" >&2
+    exit 1
+    ;;
+esac
