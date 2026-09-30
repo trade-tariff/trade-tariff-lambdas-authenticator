@@ -40,8 +40,8 @@ Terraform (`trade-tariff-platform-aws-terraform`) generates both values and stor
 deploys, so the values always match the API Gateway key and the WAF rule. There are no GitHub secrets
 for MCP.
 
-If the secret has no value (`mcp_enabled` is `false` for that environment), the deploy sets both
-variables to empty. Any other error when it reads the secret, or a missing key in it, stops the
-deploy.
+When `mcp_enabled` is `false` for that environment, both values in the secret are empty, and all
+traffic uses per-user plans. If the deploy cannot read the secret, or a key is missing from it, the
+deploy stops. Apply the terraform repo before you deploy this one.
 
 If either variable is unset the swap is disabled and all traffic uses per-user plans.
