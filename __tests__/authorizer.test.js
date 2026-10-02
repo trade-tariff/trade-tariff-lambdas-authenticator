@@ -25,6 +25,7 @@ function loadHandler() {
 
 function createEvent({
   authorization,
+  headers = {},
   methodArn = "arn:aws:execute-api:eu-west-2:123456789012:apiid/development/GET/uk/api/commodities",
   path = "/uk/api/commodities",
   method = "GET",
@@ -34,7 +35,7 @@ function createEvent({
     methodArn,
     path,
     httpMethod: method,
-    headers: authorization ? { Authorization: authorization } : {},
+    headers: authorization ? { Authorization: authorization, ...headers } : { ...headers },
   };
 }
 
@@ -315,5 +316,125 @@ describe("authorizer authorizer", () => {
     await handler(event);
 
     expect(mockVerify).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("MCP usage plan", () => {
+  const ORIGINAL_ENV = process.env;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockVerify.mockReset();
+    mockVerify.mockResolvedValue({
+      client_id: "test-client",
+      scope: "tariff/read",
+    });
+    process.env = { ...ORIGINAL_ENV, MCP_SECRET_TOKEN: "shared-secret", MCP_USAGE_KEY: "mcp-usage-key" };
+  });
+
+  afterEach(() => {
+    process.env = ORIGINAL_ENV;
+  });
+
+  it("bills a valid MCP request to the shared MCP usage key", async () => {
+    const { handler } = loadHandler();
+
+    const result = await handler(
+      createEvent({ authorization: "Bearer token", headers: { "x-mcp-token": "shared-secret" } }),
+    );
+
+    expect(result.usageIdentifierKey).toBe("mcp-usage-key");
+  });
+
+  it("keeps the end user identifiable on an MCP request", async () => {
+    const { handler } = loadHandler();
+
+    const result = await handler(
+      createEvent({ authorization: "Bearer token", headers: { "x-mcp-token": "shared-secret" } }),
+    );
+
+    expect(result.principalId).toBe("test-client");
+    expect(result.context.client_id).toBe("test-client");
+  });
+
+  it("accepts the header in canonical casing", async () => {
+    const { handler } = loadHandler();
+
+    const result = await handler(
+      createEvent({ authorization: "Bearer token", headers: { "X-Mcp-Token": "shared-secret" } }),
+    );
+
+    expect(result.usageIdentifierKey).toBe("mcp-usage-key");
+  });
+
+  it("logs that the decision was for MCP traffic", async () => {
+    const { handler, info } = loadHandler();
+
+    await handler(createEvent({ authorization: "Bearer token", headers: { "x-mcp-token": "shared-secret" } }));
+
+    expect(info).toHaveBeenCalledWith(
+      "authorizer decision",
+      expect.objectContaining({ mcp: true, client_id: "test-client" }),
+    );
+  });
+
+  it("bills a request with no MCP header to the client's own key", async () => {
+    const { handler } = loadHandler();
+
+    const result = await handler(createEvent({ authorization: "Bearer token" }));
+
+    expect(result.usageIdentifierKey).toBe("test-client");
+  });
+
+  it("bills a request with a mismatched MCP token to the client's own key", async () => {
+    const { handler } = loadHandler();
+
+    const result = await handler(
+      createEvent({ authorization: "Bearer token", headers: { "x-mcp-token": "wrong-secret" } }),
+    );
+
+    expect(result.usageIdentifierKey).toBe("test-client");
+  });
+
+  it("bills a request with an empty MCP token to the client's own key", async () => {
+    const { handler } = loadHandler();
+
+    const result = await handler(
+      createEvent({ authorization: "Bearer token", headers: { "x-mcp-token": "" } }),
+    );
+
+    expect(result.usageIdentifierKey).toBe("test-client");
+  });
+
+  it("falls back to the client's own key when the environment is not configured", async () => {
+    process.env = { ...ORIGINAL_ENV };
+    delete process.env.MCP_SECRET_TOKEN;
+    delete process.env.MCP_USAGE_KEY;
+    const { handler } = loadHandler();
+
+    const result = await handler(
+      createEvent({ authorization: "Bearer token", headers: { "x-mcp-token": "shared-secret" } }),
+    );
+
+    expect(result.usageIdentifierKey).toBe("test-client");
+  });
+
+  it("still denies an MCP request whose scope does not cover the path", async () => {
+    mockVerify.mockResolvedValue({ client_id: "test-client", scope: "tariff/categorisation" });
+    const { handler } = loadHandler();
+
+    const result = await handler(
+      createEvent({ authorization: "Bearer token", headers: { "x-mcp-token": "shared-secret" } }),
+    );
+
+    expect(result.policyDocument.Statement[0].Effect).toBe("Deny");
+  });
+
+  it("still rejects an MCP request with no token at all", async () => {
+    const { handler } = loadHandler();
+
+    await expect(handler(createEvent({ headers: { "x-mcp-token": "shared-secret" } }))).rejects.toThrow(
+      "Unauthorized",
+    );
   });
 });

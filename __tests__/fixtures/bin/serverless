@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Fake serverless for __tests__/deploy.test.js. It writes the values that the
+# deploy passes, so the test can read them.
+cat > "$FAKE_SERVERLESS_OUTPUT" <<JSON
+{"MCP_SECRET_TOKEN":"${MCP_SECRET_TOKEN-UNSET}","MCP_USAGE_KEY":"${MCP_USAGE_KEY-UNSET}","STAGE":"${STAGE-UNSET}"}
+JSON

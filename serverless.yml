@@ -18,6 +18,8 @@ provider:
   environment:
     USER_POOL_ID: ${env:USER_POOL_ID}
     LOG_LEVEL: ${env:LOG_LEVEL}
+    MCP_SECRET_TOKEN: ${env:MCP_SECRET_TOKEN, ''}
+    MCP_USAGE_KEY: ${env:MCP_USAGE_KEY, ''}
   iam:
     role: ApiGatewayAuthorizerExecutionRole
 
