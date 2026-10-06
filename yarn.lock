@@ -2541,10 +2541,10 @@ semver@^7.5.3, semver@^7.5.4, semver@^7.7.2:
   resolved "https://registry.yarnpkg.com/semver/-/semver-7.7.3.tgz#4b5f4143d007633a8dc671cd0a6ef9147b8bb946"
   integrity sha512-SdsKMrI9TdgjdweUSR9MweHA4EJ8YxHn8DFaDisvhVlUOe4BF1tLD7GAj0lIqWVl+dPb/rExr0Btby5loQm20Q==
 
-serverless@4.42.0:
-  version "4.42.0"
-  resolved "https://registry.yarnpkg.com/serverless/-/serverless-4.42.0.tgz#04200547da5eaf166fedc703b72fcee97f67f24a"
-  integrity sha512-auc1KKlWN1VEkA6bljjWIp3NFISnTRnhbRr69P/Z0lF1WJxxHrsUZfeWk9tPxeOWvfjCTjDZU7Nw33dtYw8MJw==
+serverless@4.43.0:
+  version "4.43.0"
+  resolved "https://registry.yarnpkg.com/serverless/-/serverless-4.43.0.tgz#512700f0eddd8ae01729b28808bcd7e6ff2e8da9"
+  integrity sha512-ukk3LARQ89Cn2phMyIrwabfy3rx3IoENWKvDY3Cyj4tGJOMv9XAkxgnx8n71jDaG+ijOxBXyPBL72jTkPPju0w==
   dependencies:
     undici "6.28.1"
 
