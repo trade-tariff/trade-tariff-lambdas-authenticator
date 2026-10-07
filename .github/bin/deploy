@@ -24,17 +24,51 @@ declare -A LOG_LEVELS=(
   ["production"]="WARN"
 )
 
+# Terraform (trade-tariff-platform-aws-terraform) generates the MCP token and
+# the usage plan key, and stores both in the mcp-shared-credentials secret in
+# each account. Reading them here means the values cannot differ from the
+# ones on the API Gateway and the WAF.
+#
+# When mcp_enabled is false in that environment, both values are empty, and
+# the authorizer bills all traffic to per-user plans. If the secret cannot be
+# read, or a key is missing, the deploy stops.
+read_mcp_credentials() {
+  local secret_json
+
+  if secret_json="$(aws secretsmanager get-secret-value \
+    --region eu-west-2 \
+    --secret-id mcp-shared-credentials \
+    --query SecretString \
+    --output text)"; then
+    MCP_SECRET_TOKEN="$(jq --exit-status --raw-output '.MCP_SECRET_TOKEN' <<<"$secret_json")" || {
+      echo "mcp-shared-credentials has no MCP_SECRET_TOKEN" >&2
+      return 1
+    }
+    MCP_USAGE_KEY="$(jq --exit-status --raw-output '.MCP_USAGE_KEY' <<<"$secret_json")" || {
+      echo "mcp-shared-credentials has no MCP_USAGE_KEY" >&2
+      return 1
+    }
+  else
+    echo "Cannot read mcp-shared-credentials. Apply the terraform repo first." >&2
+    return 1
+  fi
+}
+
 deploy() {
   local stage="$1"
   local bucket="${DEPLOYMENT_BUCKETS[$stage]}"
   local user_pool_id="${USER_POOL_IDS[$stage]}"
   local log_level="${LOG_LEVELS[$stage]}"
 
+  read_mcp_credentials || return 1
+
   STAGE="$stage" \
   AWS_REGION="eu-west-2" \
   DEPLOYMENT_BUCKET="$bucket" \
   USER_POOL_ID="$user_pool_id" \
   LOG_LEVEL="$log_level" \
+  MCP_SECRET_TOKEN="$MCP_SECRET_TOKEN" \
+  MCP_USAGE_KEY="$MCP_USAGE_KEY" \
     serverless deploy
 }
 

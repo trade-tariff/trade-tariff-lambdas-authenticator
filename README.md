@@ -32,6 +32,30 @@ account. It is not required to run unit tests. Review the target stage and
 existing workflow before deploying; do not use production credentials for
 local development.
 
+## MCP usage plan
+
+MCP traffic shares a single 3,000rpm API Gateway usage plan rather than consuming each end user's
+per-key plan (HMRC-2699). A request presenting `X-Mcp-Token` matching `MCP_SECRET_TOKEN` is billed to
+`MCP_USAGE_KEY`; everything else is billed to the caller's Cognito `client_id` as before.
+
+The token only selects the usage plan. The access token is still verified and scope-checked, and the
+real `client_id` is still returned as `principalId` and in the policy context, so per-user
+attribution is unaffected.
+
+| Variable | Contents |
+|---|---|
+| `MCP_SECRET_TOKEN` | Shared secret the MCP server sends in `X-Mcp-Token`. |
+| `MCP_USAGE_KEY` | Value of the `mcp-<env>` API Gateway key. |
+
+Terraform (`trade-tariff-platform-aws-terraform`) generates both values and stores them in the
+`mcp-shared-credentials` secret in each AWS account. `.github/bin/deploy` reads that secret when it
+deploys, so the values always match the API Gateway key and the WAF rule. There are no GitHub secrets
+for MCP.
+
+When `mcp_enabled` is `false` for that environment, both values in the secret are empty, and all
+traffic uses per-user plans. If the deploy cannot read the secret, or a key is missing from it, the
+deploy stops. Apply the terraform repo before you deploy this one.
+
 ## Contribute
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) for the fork workflow, checks and private
