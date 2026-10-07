@@ -367,6 +367,16 @@ describe("MCP usage plan", () => {
     expect(result.usageIdentifierKey).toBe("mcp-usage-key");
   });
 
+  it.each(["X-MCP-TOKEN", "x-Mcp-Token", "X-mcp-token"])("accepts the header in %s casing", async (headerName) => {
+    const { handler } = loadHandler();
+
+    const result = await handler(
+      createEvent({ authorization: "Bearer token", headers: { [headerName]: "shared-secret" } }),
+    );
+
+    expect(result.usageIdentifierKey).toBe("mcp-usage-key");
+  });
+
   it("logs that the decision was for MCP traffic", async () => {
     const { handler, info } = loadHandler();
 

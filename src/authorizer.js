@@ -114,7 +114,11 @@ function extractAuthorizationHeader(headers = {}) {
 function isMcpRequest(headers = {}) {
   if (!MCP_SECRET_TOKEN || !MCP_USAGE_KEY) return false;
 
-  const presented = headers["x-mcp-token"] || headers["X-Mcp-Token"];
+  // API Gateway keeps the header name casing that the client sent.
+  const headerName = Object.keys(headers).find(
+    (name) => name.toLowerCase() === "x-mcp-token",
+  );
+  const presented = headerName ? headers[headerName] : undefined;
   if (!presented) return false;
 
   const presentedBytes = Buffer.from(presented);
