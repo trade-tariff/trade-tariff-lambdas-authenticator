@@ -1,15 +1,34 @@
 {
   "SCOPES": {
+    "tariff/categorisation": {
+      "allowedPaths": [
+        "/xi/api/categorisation"
+      ]
+    },
     "tariff/read": {
-      "allowedPaths": ["/uk/api", "/xi/api"],
-      "excludedPaths": ["green_lanes", "categorisation", "user", "admin", "notifications"]
+      "allowedPaths": [
+        "/uk/api",
+        "/xi/api"
+      ],
+      "excludedPaths": [
+        "green_lanes",
+        "categorisation",
+        "user",
+        "admin",
+        "notifications"
+      ]
     },
     "tariff/write": {
-      "allowedPaths": ["/uk/api", "/xi/api", "/uk/admin", "/xi/admin"],
-      "excludedPaths": ["/xi/api/green_lanes", "/xi/api/categorisation"]
-    },
-    "tariff/categorisation": {
-      "allowedPaths": ["/xi/api/categorisation"]
+      "allowedPaths": [
+        "/uk/api",
+        "/xi/api",
+        "/uk/admin",
+        "/xi/admin"
+      ],
+      "excludedPaths": [
+        "/xi/api/green_lanes",
+        "/xi/api/categorisation"
+      ]
     }
   },
   "TOKEN_CACHE_TTL_SECONDS": 150

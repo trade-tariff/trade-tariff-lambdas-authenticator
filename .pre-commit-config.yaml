@@ -32,6 +32,7 @@ repos:
     hooks:
       - id: prettier
         args: [--write]
+        exclude_types: [json]
 
   - repo: local
     hooks:
