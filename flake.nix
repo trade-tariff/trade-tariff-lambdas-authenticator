@@ -73,6 +73,7 @@
             };
             prettier = {
               enable = true;
+              exclude_types = [ "json" ];
               settings.list-different = false;
               stages = [ "pre-commit" ];
             };
