@@ -1,0 +1,38 @@
+name: Deploy to UAT
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: eu-west-2
+  STAGE: uat
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: uat
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          cache: yarn
+
+      - uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::352285845378:role/GithubActions-Serverless-Lambda-Role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - run: yarn global add serverless@3.0
+
+      - run: yarn install --frozen-lockfile --production
+
+      - run: make deploy-${{ env.STAGE }}

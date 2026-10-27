@@ -10,18 +10,21 @@ declare -A DEPLOYMENT_BUCKETS=(
   ["development"]="trade-tariff-lambda-deployment-844815912454"
   ["staging"]="trade-tariff-lambda-deployment-451934005581"
   ["production"]="trade-tariff-lambda-deployment-382373577178"
+  ["uat"]="trade-tariff-lambda-deployment-352285845378"
 )
 
 declare -A USER_POOL_IDS=(
   ["development"]="eu-west-2_eYCVlIQL0"
   ["staging"]="eu-west-2_h8JF71jvX"
   ["production"]="eu-west-2_dtYQGsKs4"
+  ["uat"]="eu-west-2_bT8CLmogs"
 )
 
 declare -A LOG_LEVELS=(
   ["development"]="DEBUG"
   ["staging"]="INFO"
   ["production"]="WARN"
+  ["uat"]="INFO"
 )
 
 deploy() {
