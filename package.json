@@ -6,7 +6,7 @@
     "baseline-browser-mapping": "^2.11.28",
     "eslint": "^10.13.0",
     "jest": "^30.5.2",
-    "serverless": "4.43.0"
+    "serverless": "4.44.0"
   },
   "license": "MIT",
   "name": "auth",
