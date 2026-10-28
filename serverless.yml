@@ -6,6 +6,7 @@ custom:
     development: 7
     staging: 14
     production: 30
+    uat: 14
 
 provider:
   name: aws

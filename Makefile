@@ -9,3 +9,6 @@ deploy-staging:
 
 deploy-production:
 	.github/bin/deploy production
+
+deploy-uat:
+	.github/bin/deploy uat
