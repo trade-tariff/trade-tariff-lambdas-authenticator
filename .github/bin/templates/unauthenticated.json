@@ -20,7 +20,7 @@
             "authorization": [
               {
                 "key": "authorization",
-                "value": "Bearer eyJraWQiOiJmUXJUSDZKZ3hvT09ldlNUQmdXMDRaVGgzSmlNeFJLXC9lMmFWeTZiTEd3Zz0iLCJhbGciOiJSUzI1NiJ9.eyJzdWIiOiI1YTFxOHYxMzlsazg0MHFmNjZpZ28wMmt0aiIsInRva2VuX3VzZSI6ImFjY2VzcyIsInNjb3BlIjoidGFyaWZmXC9yZWFkIiwiYXV0aF90aW1lIjoxNzYxOTA2NjAxLCJpc3MiOiJodHRwczpcL1wvY29nbml0by1pZHAuZXUtd2VzdC0yLmFtYXpvbmF3cy5jb21cL2V1LXdlc3QtMl9lWUNWbElRTDAiLCJleHAiOjE3NjE5MTAyMDEsImlhdCI6MTc2MTkwNjYwMSwidmVyc2lvbiI6MiwianRpIjoiMTFiOWVkMTgtNWMxYS00OTE0LWExY2EtYWM4NDUzNDEwNTFhIiwiY2xpZW50X2lkIjoiNWExcTh2MTM5bGs4NDBxZjY2aWdvMDJrdGoifQ.ZRsn1RwqN3rD55P_l1wha6_zWoZ_x-vaVul-y5U4Pq1LnVS1GyZDZvCbB3UAKPLOEFbiQlbKHoAcXK-GxhNx077oitjjV8xpmL6DFwLRnXH_ox_D0rnCoxCor2EqP4Zk8xL95cayWLPl074OPe2kFkAvQFmf87opAdnJY6GpMtZk5OCkdMK5nbw-nNYW90pT5ImYy_F4YdSxGBWLSTU8BSW2egUPVOGOgOIXvrzTPqzlDzbn8syiiJYftZ3JjJH_f2XzeqfJOGYqDeL9zFpcvPO54VOFF_6Z19-WHnTpm5CPBdFskNcFTTy1kG-9Pqe05BkXPFfnA1HmNjqpsvPyYw"
+                "value": "Bearer invalid-token"
               }
             ],
             "host": [
